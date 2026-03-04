@@ -175,6 +175,7 @@ impl App {
         self.add_error = None;
     }
 
+    #[allow(dead_code)]
     pub fn add_field_value(&self, field: AddField) -> &str {
         &self.add_fields[field as usize]
     }
