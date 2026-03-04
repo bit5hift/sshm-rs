@@ -20,6 +20,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   - Persisted in `favorites.json` in sshm config directory
   - Works with all sort modes (favorites always on top)
 
+- **Port forwarding TUI** (`F` key in TUI)
+  - Interactive overlay form to configure SSH port forwarding (-L, -R, -D)
+  - Support for Local, Remote, and Dynamic forwarding types
+  - Fields: forward type selector, local port, remote host, remote port, bind address
+  - Auto-prefill from last used configuration (persisted in history)
+  - Validation: required fields enforced per forwarding type
+  - Dynamic mode auto-disables remote host/port fields
+  - Connects via system `ssh` with proper -L/-R/-D arguments
+
 - **Edit Host form** (`e` key in TUI)
   - Pre-populated fields from existing host data
   - Password credential migration on host rename

@@ -91,6 +91,10 @@ pub fn draw(f: &mut Frame, area: Rect) {
             Span::styled("Toggle favorite", desc_style),
         ]),
         Line::from(vec![
+            Span::styled("  F        ", key_style),
+            Span::styled("Port forwarding", desc_style),
+        ]),
+        Line::from(vec![
             Span::styled("  i        ", key_style),
             Span::styled("Show host info", desc_style),
         ]),

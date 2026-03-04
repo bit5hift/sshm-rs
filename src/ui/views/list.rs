@@ -50,6 +50,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         ViewMode::Add => draw_host_form(f, app, area, " ADD SSH HOST "),
         ViewMode::Edit => draw_host_form(f, app, area, " EDIT SSH HOST "),
         ViewMode::Password => draw_password_overlay(f, app, area),
+        ViewMode::PortForward => draw_port_forward_overlay(f, app, area),
         _ => {}
     }
 }
@@ -260,7 +261,7 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
         )
     } else {
         (
-            " j/k: navigate | Enter: connect | /: search | s: sort | f: favorite | r: refresh | p: password | i: info | ?: help | q: quit".to_string(),
+            " j/k: navigate | Enter: connect | /: search | s: sort | f: fav | F: forward | r: refresh | p: password | i: info | ?: help | q: quit".to_string(),
             styles::help_text_style(),
         )
     };
@@ -585,6 +586,153 @@ fn draw_password_overlay(f: &mut Frame, app: &App, area: Rect) {
         "  Enter: save | Esc: cancel"
     };
     lines.push(Line::from(Span::styled(help, styles::help_text_style())));
+
+    let paragraph = Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(styles::border_focused_style())
+            .style(Style::default().bg(styles::BG).fg(styles::FG)),
+    );
+    f.render_widget(paragraph, popup_area);
+}
+
+fn draw_port_forward_overlay(f: &mut Frame, app: &App, area: Rect) {
+    let host_name = app.pf_target.as_deref().unwrap_or("???");
+    let is_dynamic = app.pf_forward_type == 2;
+
+    let popup_width = 60u16.min(area.width.saturating_sub(4));
+    let popup_height = 16u16.min(area.height.saturating_sub(4));
+    let x = (area.width.saturating_sub(popup_width)) / 2;
+    let y = (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect::new(x, y, popup_width, popup_height);
+
+    f.render_widget(Clear, popup_area);
+
+    let mut lines = vec![
+        Line::from(Span::styled(
+            " PORT FORWARDING ",
+            Style::default()
+                .fg(styles::BG)
+                .bg(styles::PRIMARY)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  Host: ", Style::default().fg(styles::MUTED)),
+            Span::styled(host_name, Style::default().fg(styles::FG).add_modifier(Modifier::BOLD)),
+        ]),
+        Line::from(""),
+    ];
+
+    // Field labels and focused state
+    let fields = ["Type", "Local Port", "Remote Host", "Remote Port", "Bind Address"];
+
+    for (i, &label) in fields.iter().enumerate() {
+        let is_focused = app.pf_focused == i;
+        let indicator = if is_focused { "> " } else { "  " };
+
+        let label_style = if is_focused {
+            Style::default().fg(styles::PRIMARY).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(styles::MUTED)
+        };
+
+        // Dim remote host/port fields when dynamic mode is selected
+        let is_disabled = is_dynamic && (i == 2 || i == 3);
+
+        match i {
+            0 => {
+                // Forward type selector
+                let types = ["Local", "Remote", "Dynamic"];
+                let mut type_spans = vec![
+                    Span::styled(indicator, Style::default().fg(styles::PRIMARY)),
+                    Span::styled(format!("{:14} ", label), label_style),
+                ];
+                for (ti, &type_label) in types.iter().enumerate() {
+                    if ti == app.pf_forward_type {
+                        type_spans.push(Span::styled(
+                            format!("[{type_label}]"),
+                            Style::default().fg(styles::GREEN).add_modifier(Modifier::BOLD),
+                        ));
+                    } else {
+                        type_spans.push(Span::styled(
+                            format!(" {type_label} "),
+                            Style::default().fg(styles::MUTED),
+                        ));
+                    }
+                    if ti < 2 {
+                        type_spans.push(Span::styled(" ", Style::default()));
+                    }
+                }
+                lines.push(Line::from(type_spans));
+            }
+            1 => {
+                let cursor = if is_focused { "_" } else { "" };
+                lines.push(Line::from(vec![
+                    Span::styled(indicator, Style::default().fg(styles::PRIMARY)),
+                    Span::styled(format!("{:14} ", label), label_style),
+                    Span::styled(format!("{}{cursor}", app.pf_local_port), Style::default().fg(styles::FG)),
+                ]));
+            }
+            2 => {
+                let cursor = if is_focused && !is_disabled { "_" } else { "" };
+                let value_style = if is_disabled { Style::default().fg(styles::MUTED) } else { Style::default().fg(styles::FG) };
+                let suffix = if is_disabled { " (N/A)" } else { "" };
+                lines.push(Line::from(vec![
+                    Span::styled(indicator, Style::default().fg(styles::PRIMARY)),
+                    Span::styled(format!("{:14} ", label), label_style),
+                    Span::styled(format!("{}{cursor}", app.pf_remote_host), value_style),
+                    Span::styled(suffix, Style::default().fg(styles::MUTED)),
+                ]));
+            }
+            3 => {
+                let cursor = if is_focused && !is_disabled { "_" } else { "" };
+                let value_style = if is_disabled { Style::default().fg(styles::MUTED) } else { Style::default().fg(styles::FG) };
+                let suffix = if is_disabled { " (N/A)" } else { "" };
+                lines.push(Line::from(vec![
+                    Span::styled(indicator, Style::default().fg(styles::PRIMARY)),
+                    Span::styled(format!("{:14} ", label), label_style),
+                    Span::styled(format!("{}{cursor}", app.pf_remote_port), value_style),
+                    Span::styled(suffix, Style::default().fg(styles::MUTED)),
+                ]));
+            }
+            4 => {
+                let cursor = if is_focused { "_" } else { "" };
+                let display = if app.pf_bind_address.is_empty() && !is_focused {
+                    "0.0.0.0".to_string()
+                } else {
+                    format!("{}{cursor}", app.pf_bind_address)
+                };
+                let value_style = if app.pf_bind_address.is_empty() && !is_focused {
+                    Style::default().fg(styles::MUTED)
+                } else {
+                    Style::default().fg(styles::FG)
+                };
+                lines.push(Line::from(vec![
+                    Span::styled(indicator, Style::default().fg(styles::PRIMARY)),
+                    Span::styled(format!("{:14} ", label), label_style),
+                    Span::styled(display, value_style),
+                ]));
+            }
+            _ => {}
+        }
+    }
+
+    lines.push(Line::from(""));
+
+    if let Some(ref err) = app.pf_error {
+        lines.push(Line::from(Span::styled(
+            format!("  Error: {err}"),
+            Style::default().fg(styles::RED),
+        )));
+        lines.push(Line::from(""));
+    }
+
+    lines.push(Line::from(Span::styled(
+        "  Tab: navigate | Left/Right: type | Enter: connect | Esc: cancel",
+        styles::help_text_style(),
+    )));
 
     let paragraph = Paragraph::new(lines).block(
         Block::default()

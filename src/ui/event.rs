@@ -43,6 +43,7 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         ViewMode::Add => handle_add_key(app, key),
         ViewMode::Edit => handle_edit_key(app, key),
         ViewMode::Password => handle_password_key(app, key),
+        ViewMode::PortForward => handle_port_forward_key(app, key),
     }
 }
 
@@ -228,6 +229,13 @@ fn handle_table_key(app: &mut App, key: KeyEvent) {
         KeyCode::Char('r') => {
             // Refresh connectivity status for all hosts
             app.start_ping();
+        }
+        KeyCode::Char('F') => {
+            if let Some(host) = app.selected_host().cloned() {
+                app.pf_target = Some(host.name.clone());
+                app.prefill_pf_form(&host.name);
+                app.view_mode = ViewMode::PortForward;
+            }
         }
         KeyCode::Char('e') => {
             if let Some(host) = app.selected_host().cloned() {
@@ -638,5 +646,145 @@ fn handle_password_key(app: &mut App, key: KeyEvent) {
             app.password_input.push(c);
         }
         _ => {}
+    }
+}
+
+fn handle_port_forward_key(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => {
+            app.pf_target = None;
+            app.pf_error = None;
+            app.view_mode = ViewMode::List;
+        }
+        KeyCode::Tab | KeyCode::Down => {
+            app.pf_focused = (app.pf_focused + 1) % 5;
+            app.pf_error = None;
+        }
+        KeyCode::BackTab | KeyCode::Up => {
+            app.pf_focused = if app.pf_focused == 0 { 4 } else { app.pf_focused - 1 };
+            app.pf_error = None;
+        }
+        KeyCode::Enter => {
+            // Validate
+            if app.pf_local_port.trim().is_empty() {
+                app.pf_error = Some("Local port is required".to_string());
+                return;
+            }
+
+            let forward_type = match app.pf_forward_type {
+                1 => "remote",
+                2 => "dynamic",
+                _ => "local",
+            };
+
+            // For local/remote, remote_host and remote_port are required
+            if app.pf_forward_type != 2 {
+                if app.pf_remote_host.trim().is_empty() {
+                    app.pf_error = Some("Remote host is required for local/remote forwarding".to_string());
+                    return;
+                }
+                if app.pf_remote_port.trim().is_empty() {
+                    app.pf_error = Some("Remote port is required for local/remote forwarding".to_string());
+                    return;
+                }
+            }
+
+            // Build the SSH port forwarding argument
+            let bind = app.pf_bind_address.trim();
+            let local_port = app.pf_local_port.trim();
+            let remote_host = app.pf_remote_host.trim();
+            let remote_port = app.pf_remote_port.trim();
+
+            let pf_arg = match app.pf_forward_type {
+                2 => {
+                    // Dynamic: -D [bind_address:]local_port
+                    if bind.is_empty() {
+                        format!("-D {local_port}")
+                    } else {
+                        format!("-D {bind}:{local_port}")
+                    }
+                }
+                _ => {
+                    // Local (-L) or Remote (-R)
+                    let flag = if app.pf_forward_type == 1 { "-R" } else { "-L" };
+                    if bind.is_empty() {
+                        format!("{flag} {local_port}:{remote_host}:{remote_port}")
+                    } else {
+                        format!("{flag} {bind}:{local_port}:{remote_host}:{remote_port}")
+                    }
+                }
+            };
+
+            // Record in history
+            if let Some(ref host_name) = app.pf_target.clone() {
+                if let Some(ref mut history) = app.history {
+                    let _ = history.record_port_forwarding(
+                        host_name,
+                        forward_type,
+                        local_port,
+                        remote_host,
+                        remote_port,
+                        bind,
+                    );
+                }
+
+                app.connect_host = Some(host_name.clone());
+                app.port_forward_args = Some(pf_arg);
+                app.should_quit = true;
+            }
+        }
+        _ => {
+            // Field-specific input handling
+            match app.pf_focused {
+                0 => {
+                    // Forward type: Left/Right to cycle, or type l/r/d
+                    match key.code {
+                        KeyCode::Left => {
+                            app.pf_forward_type = if app.pf_forward_type == 0 { 2 } else { app.pf_forward_type - 1 };
+                        }
+                        KeyCode::Right => {
+                            app.pf_forward_type = (app.pf_forward_type + 1) % 3;
+                        }
+                        KeyCode::Char('l') => app.pf_forward_type = 0,
+                        KeyCode::Char('r') => app.pf_forward_type = 1,
+                        KeyCode::Char('d') => app.pf_forward_type = 2,
+                        _ => {}
+                    }
+                }
+                1 => {
+                    // Local port
+                    match key.code {
+                        KeyCode::Backspace => { app.pf_local_port.pop(); }
+                        KeyCode::Char(c) if c.is_ascii_digit() => { app.pf_local_port.push(c); }
+                        _ => {}
+                    }
+                }
+                2 => {
+                    // Remote host
+                    match key.code {
+                        KeyCode::Backspace => { app.pf_remote_host.pop(); }
+                        KeyCode::Char(c) => { app.pf_remote_host.push(c); }
+                        _ => {}
+                    }
+                }
+                3 => {
+                    // Remote port
+                    match key.code {
+                        KeyCode::Backspace => { app.pf_remote_port.pop(); }
+                        KeyCode::Char(c) if c.is_ascii_digit() => { app.pf_remote_port.push(c); }
+                        _ => {}
+                    }
+                }
+                4 => {
+                    // Bind address
+                    match key.code {
+                        KeyCode::Backspace => { app.pf_bind_address.pop(); }
+                        KeyCode::Char(c) => { app.pf_bind_address.push(c); }
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 }
