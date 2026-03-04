@@ -81,7 +81,7 @@ fn draw_compact_title(f: &mut Frame, area: Rect) {
     let title = Paragraph::new(Line::from(Span::styled(
         "sshm-rs",
         Style::default()
-            .fg(styles::PRIMARY)
+            .fg(styles::primary())
             .add_modifier(Modifier::BOLD),
     )))
     .alignment(Alignment::Center);
@@ -96,11 +96,11 @@ fn draw_sidebar(f: &mut Frame, app: &App, area: Rect) {
     };
 
     let all_hosts_style = if app.sidebar_active_tag.is_none() {
-        Style::default().fg(styles::PRIMARY).add_modifier(Modifier::BOLD)
+        Style::default().fg(styles::primary()).add_modifier(Modifier::BOLD)
     } else if app.sidebar_focused && app.sidebar_selected == 0 {
-        Style::default().fg(styles::FG).bg(styles::SELECTION_BG)
+        Style::default().fg(styles::fg()).bg(styles::selection_bg())
     } else {
-        Style::default().fg(styles::FG)
+        Style::default().fg(styles::fg())
     };
 
     let mut items: Vec<Line> = vec![
@@ -113,11 +113,11 @@ fn draw_sidebar(f: &mut Frame, app: &App, area: Rect) {
         let is_active = app.sidebar_active_tag.as_deref() == Some(tag);
 
         let style = if is_active {
-            Style::default().fg(styles::PRIMARY).add_modifier(Modifier::BOLD)
+            Style::default().fg(styles::primary()).add_modifier(Modifier::BOLD)
         } else if is_selected {
-            Style::default().fg(styles::FG).bg(styles::SELECTION_BG)
+            Style::default().fg(styles::fg()).bg(styles::selection_bg())
         } else {
-            Style::default().fg(styles::PURPLE)
+            Style::default().fg(styles::purple())
         };
 
         let prefix = if is_active { "\u{25cf} " } else { "  " };
@@ -131,7 +131,7 @@ fn draw_sidebar(f: &mut Frame, app: &App, area: Rect) {
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
                 .border_style(border_style)
-                .style(Style::default().bg(styles::BG)),
+                .style(Style::default().bg(styles::bg())),
         );
     f.render_widget(list, area);
 }
@@ -249,9 +249,9 @@ fn draw_table(f: &mut Frame, app: &App, area: Rect) {
             };
 
             let name_style = if app.favorites.is_favorite(&host.name) {
-                Style::default().fg(styles::YELLOW)
+                Style::default().fg(styles::yellow())
             } else {
-                Style::default().fg(styles::FG)
+                Style::default().fg(styles::fg())
             };
 
             let cells = vec![
@@ -517,13 +517,13 @@ fn draw_info_overlay(f: &mut Frame, app: &App, area: Rect) {
         lines.push(Line::from(Span::styled(
             "  Warnings:",
             Style::default()
-                .fg(styles::YELLOW)
+                .fg(styles::yellow())
                 .add_modifier(Modifier::BOLD),
         )));
         for w in host_warnings {
             lines.push(Line::from(Span::styled(
                 format!("  \u{26a0} {}", w),
-                Style::default().fg(styles::RED),
+                Style::default().fg(styles::red()),
             )));
         }
     }
@@ -719,14 +719,14 @@ fn draw_port_forward_overlay(f: &mut Frame, app: &App, area: Rect) {
         Line::from(Span::styled(
             " PORT FORWARDING ",
             Style::default()
-                .fg(styles::BG)
-                .bg(styles::PRIMARY)
+                .fg(styles::bg())
+                .bg(styles::primary())
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
         Line::from(vec![
-            Span::styled("  Host: ", Style::default().fg(styles::MUTED)),
-            Span::styled(host_name, Style::default().fg(styles::FG).add_modifier(Modifier::BOLD)),
+            Span::styled("  Host: ", Style::default().fg(styles::muted())),
+            Span::styled(host_name, Style::default().fg(styles::fg()).add_modifier(Modifier::BOLD)),
         ]),
         Line::from(""),
     ];
@@ -739,9 +739,9 @@ fn draw_port_forward_overlay(f: &mut Frame, app: &App, area: Rect) {
         let indicator = if is_focused { "> " } else { "  " };
 
         let label_style = if is_focused {
-            Style::default().fg(styles::PRIMARY).add_modifier(Modifier::BOLD)
+            Style::default().fg(styles::primary()).add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(styles::MUTED)
+            Style::default().fg(styles::muted())
         };
 
         // Dim remote host/port fields when dynamic mode is selected
@@ -752,19 +752,19 @@ fn draw_port_forward_overlay(f: &mut Frame, app: &App, area: Rect) {
                 // Forward type selector
                 let types = ["Local", "Remote", "Dynamic"];
                 let mut type_spans = vec![
-                    Span::styled(indicator, Style::default().fg(styles::PRIMARY)),
+                    Span::styled(indicator, Style::default().fg(styles::primary())),
                     Span::styled(format!("{:14} ", label), label_style),
                 ];
                 for (ti, &type_label) in types.iter().enumerate() {
                     if ti == app.pf_forward_type {
                         type_spans.push(Span::styled(
                             format!("[{type_label}]"),
-                            Style::default().fg(styles::GREEN).add_modifier(Modifier::BOLD),
+                            Style::default().fg(styles::green()).add_modifier(Modifier::BOLD),
                         ));
                     } else {
                         type_spans.push(Span::styled(
                             format!(" {type_label} "),
-                            Style::default().fg(styles::MUTED),
+                            Style::default().fg(styles::muted()),
                         ));
                     }
                     if ti < 2 {
@@ -776,31 +776,31 @@ fn draw_port_forward_overlay(f: &mut Frame, app: &App, area: Rect) {
             1 => {
                 let cursor = if is_focused { "_" } else { "" };
                 lines.push(Line::from(vec![
-                    Span::styled(indicator, Style::default().fg(styles::PRIMARY)),
+                    Span::styled(indicator, Style::default().fg(styles::primary())),
                     Span::styled(format!("{:14} ", label), label_style),
-                    Span::styled(format!("{}{cursor}", app.pf_local_port), Style::default().fg(styles::FG)),
+                    Span::styled(format!("{}{cursor}", app.pf_local_port), Style::default().fg(styles::fg())),
                 ]));
             }
             2 => {
                 let cursor = if is_focused && !is_disabled { "_" } else { "" };
-                let value_style = if is_disabled { Style::default().fg(styles::MUTED) } else { Style::default().fg(styles::FG) };
+                let value_style = if is_disabled { Style::default().fg(styles::muted()) } else { Style::default().fg(styles::fg()) };
                 let suffix = if is_disabled { " (N/A)" } else { "" };
                 lines.push(Line::from(vec![
-                    Span::styled(indicator, Style::default().fg(styles::PRIMARY)),
+                    Span::styled(indicator, Style::default().fg(styles::primary())),
                     Span::styled(format!("{:14} ", label), label_style),
                     Span::styled(format!("{}{cursor}", app.pf_remote_host), value_style),
-                    Span::styled(suffix, Style::default().fg(styles::MUTED)),
+                    Span::styled(suffix, Style::default().fg(styles::muted())),
                 ]));
             }
             3 => {
                 let cursor = if is_focused && !is_disabled { "_" } else { "" };
-                let value_style = if is_disabled { Style::default().fg(styles::MUTED) } else { Style::default().fg(styles::FG) };
+                let value_style = if is_disabled { Style::default().fg(styles::muted()) } else { Style::default().fg(styles::fg()) };
                 let suffix = if is_disabled { " (N/A)" } else { "" };
                 lines.push(Line::from(vec![
-                    Span::styled(indicator, Style::default().fg(styles::PRIMARY)),
+                    Span::styled(indicator, Style::default().fg(styles::primary())),
                     Span::styled(format!("{:14} ", label), label_style),
                     Span::styled(format!("{}{cursor}", app.pf_remote_port), value_style),
-                    Span::styled(suffix, Style::default().fg(styles::MUTED)),
+                    Span::styled(suffix, Style::default().fg(styles::muted())),
                 ]));
             }
             4 => {
@@ -811,12 +811,12 @@ fn draw_port_forward_overlay(f: &mut Frame, app: &App, area: Rect) {
                     format!("{}{cursor}", app.pf_bind_address)
                 };
                 let value_style = if app.pf_bind_address.is_empty() && !is_focused {
-                    Style::default().fg(styles::MUTED)
+                    Style::default().fg(styles::muted())
                 } else {
-                    Style::default().fg(styles::FG)
+                    Style::default().fg(styles::fg())
                 };
                 lines.push(Line::from(vec![
-                    Span::styled(indicator, Style::default().fg(styles::PRIMARY)),
+                    Span::styled(indicator, Style::default().fg(styles::primary())),
                     Span::styled(format!("{:14} ", label), label_style),
                     Span::styled(display, value_style),
                 ]));
@@ -830,7 +830,7 @@ fn draw_port_forward_overlay(f: &mut Frame, app: &App, area: Rect) {
     if let Some(ref err) = app.pf_error {
         lines.push(Line::from(Span::styled(
             format!("  Error: {err}"),
-            Style::default().fg(styles::RED),
+            Style::default().fg(styles::red()),
         )));
         lines.push(Line::from(""));
     }
@@ -845,7 +845,7 @@ fn draw_port_forward_overlay(f: &mut Frame, app: &App, area: Rect) {
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(styles::border_focused_style())
-            .style(Style::default().bg(styles::BG).fg(styles::FG)),
+            .style(Style::default().bg(styles::bg()).fg(styles::fg())),
     );
     f.render_widget(paragraph, popup_area);
 }
