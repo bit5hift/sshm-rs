@@ -48,11 +48,21 @@ pub fn run_tui() -> Result<()> {
 
     // If the user chose to connect, exec ssh
     if let Some(host_name) = app.connect_host.take() {
-        // Record history
-        if let Some(ref mut history) = app.history {
-            let _ = history.record_connection(&host_name);
+        let pf_args = app.port_forward_args.take();
+
+        // Record history (only if not a port-forward, which already recorded)
+        if pf_args.is_none() {
+            if let Some(ref mut history) = app.history {
+                let _ = history.record_connection(&host_name);
+            }
         }
-        crate::connectivity::connect_ssh(&host_name, &[], None, false)?;
+
+        if let Some(ref pf_arg) = pf_args {
+            // Port forwarding: use system ssh with extra args
+            crate::connectivity::connect_ssh_with_port_forward(&host_name, pf_arg, None)?;
+        } else {
+            crate::connectivity::connect_ssh(&host_name, &[], None, false)?;
+        }
     }
 
     Ok(())

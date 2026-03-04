@@ -14,6 +14,7 @@ pub enum ViewMode {
     Add,
     Edit,
     Password,
+    PortForward,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -157,6 +158,19 @@ pub struct App {
     // Double-click detection
     pub last_click_time: Option<Instant>,
     pub last_click_index: Option<usize>,
+
+    // Port forwarding form state
+    pub pf_forward_type: usize,  // 0=local, 1=remote, 2=dynamic
+    pub pf_local_port: String,
+    pub pf_remote_host: String,
+    pub pf_remote_port: String,
+    pub pf_bind_address: String,
+    pub pf_focused: usize,       // which field is focused (0-4)
+    pub pf_target: Option<String>, // host name
+    pub pf_error: Option<String>,
+
+    // Port forwarding args to pass to ssh after TUI exits
+    pub port_forward_args: Option<String>,
 }
 
 impl App {
@@ -189,6 +203,15 @@ impl App {
             toast_expires: None,
             last_click_time: None,
             last_click_index: None,
+            pf_forward_type: 0,
+            pf_local_port: String::new(),
+            pf_remote_host: String::new(),
+            pf_remote_port: String::new(),
+            pf_bind_address: String::new(),
+            pf_focused: 0,
+            pf_target: None,
+            pf_error: None,
+            port_forward_args: None,
         };
         app.hosts = app.sort_hosts(&hosts);
         app.filtered_hosts = app.hosts.clone();
@@ -242,6 +265,33 @@ impl App {
     #[allow(dead_code)]
     pub fn add_field_value(&self, field: AddField) -> &str {
         &self.add_fields[field as usize]
+    }
+
+    pub fn reset_pf_form(&mut self) {
+        self.pf_forward_type = 0;
+        self.pf_local_port.clear();
+        self.pf_remote_host.clear();
+        self.pf_remote_port.clear();
+        self.pf_bind_address.clear();
+        self.pf_focused = 0;
+        self.pf_error = None;
+    }
+
+    pub fn prefill_pf_form(&mut self, host_name: &str) {
+        self.reset_pf_form();
+        if let Some(ref history) = self.history {
+            if let Some(pf) = history.get_port_forwarding(host_name) {
+                self.pf_forward_type = match pf.forward_type.as_str() {
+                    "remote" => 1,
+                    "dynamic" => 2,
+                    _ => 0, // local
+                };
+                self.pf_local_port = pf.local_port.clone();
+                self.pf_remote_host = pf.remote_host.clone();
+                self.pf_remote_port = pf.remote_port.clone();
+                self.pf_bind_address = pf.bind_address.clone();
+            }
+        }
     }
 
     pub fn reload_hosts(&mut self) {

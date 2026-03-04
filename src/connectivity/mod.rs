@@ -375,6 +375,36 @@ fn key_event_to_bytes(key: &crossterm::event::KeyEvent) -> Vec<u8> {
     }
 }
 
+/// Connect to an SSH host with port forwarding arguments.
+/// Always uses the system `ssh` command since port forwarding requires it.
+pub fn connect_ssh_with_port_forward(
+    host: &str,
+    pf_arg: &str,
+    config_file: Option<&str>,
+) -> Result<()> {
+    let mut cmd = std::process::Command::new("ssh");
+
+    if let Some(cfg) = config_file {
+        cmd.args(["-F", cfg]);
+    }
+
+    // Add port forwarding arguments (split by spaces: e.g. "-L 8080:localhost:80")
+    for part in pf_arg.split_whitespace() {
+        cmd.arg(part);
+    }
+
+    cmd.arg(host);
+
+    println!("Connecting to {host} with port forwarding ({pf_arg})...");
+
+    cmd.stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit());
+
+    let status = cmd.status()?;
+    std::process::exit(status.code().unwrap_or(1));
+}
+
 /// Fallback: connect using the system `ssh` command (for key-based auth).
 fn connect_ssh_system(
     host: &str,
