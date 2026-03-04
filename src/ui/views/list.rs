@@ -202,7 +202,7 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
     let help_text = if app.search_mode {
         " Type to filter | Enter: validate | Tab: switch | Esc: quit search"
     } else {
-        " j/k: navigate | Enter: connect | /: search | s: sort | p: password | i: info | ?: help | q: quit"
+        " j/k: navigate | Enter: connect | /: search | s: sort | r: refresh | p: password | i: info | ?: help | q: quit"
     };
 
     let count = app.filtered_hosts.len();

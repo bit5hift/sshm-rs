@@ -78,6 +78,10 @@ pub fn draw(f: &mut Frame, area: Rect) {
             Span::styled("  s        ", key_style),
             Span::styled("Toggle sort mode", desc_style),
         ]),
+        Line::from(vec![
+            Span::styled("  r        ", key_style),
+            Span::styled("Refresh connectivity status", desc_style),
+        ]),
         Line::from(""),
         // System
         Line::from(Span::styled("System", section_style)),
