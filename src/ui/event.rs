@@ -46,6 +46,7 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         ViewMode::Edit => handle_edit_key(app, key),
         ViewMode::Password => handle_password_key(app, key),
         ViewMode::PortForward => handle_port_forward_key(app, key),
+        ViewMode::Snippets => handle_snippets_key(app, key),
     }
 }
 
@@ -294,6 +295,14 @@ fn handle_table_key(app: &mut App, key: KeyEvent) {
             if app.show_sidebar {
                 app.sidebar_focused = true;
             }
+        }
+        KeyCode::Char('S') => {
+            app.snippet_selected = 0;
+            app.snippet_adding = false;
+            app.snippet_fields = Default::default();
+            app.snippet_focused = 0;
+            app.snippet_error = None;
+            app.view_mode = ViewMode::Snippets;
         }
         KeyCode::Char('e') => {
             if let Some(host) = app.selected_host().cloned() {
@@ -910,5 +919,110 @@ fn handle_port_forward_key(app: &mut App, key: KeyEvent) {
                 _ => {}
             }
         }
+    }
+}
+
+fn handle_snippets_key(app: &mut App, key: KeyEvent) {
+    if app.snippet_adding {
+        handle_snippet_add_key(app, key);
+    } else {
+        handle_snippet_list_key(app, key);
+    }
+}
+
+fn handle_snippet_list_key(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => {
+            app.view_mode = ViewMode::List;
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            if app.snippet_selected > 0 {
+                app.snippet_selected -= 1;
+            }
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            let len = app.snippet_manager.snippets.len();
+            if len > 0 && app.snippet_selected < len - 1 {
+                app.snippet_selected += 1;
+            }
+        }
+        KeyCode::Char('a') => {
+            app.snippet_fields = Default::default();
+            app.snippet_focused = 0;
+            app.snippet_error = None;
+            app.snippet_adding = true;
+        }
+        KeyCode::Char('d') => {
+            let len = app.snippet_manager.snippets.len();
+            if len > 0 {
+                let idx = app.snippet_selected;
+                app.snippet_manager.remove(idx);
+                if app.snippet_selected > 0 && app.snippet_selected >= app.snippet_manager.snippets.len() {
+                    app.snippet_selected -= 1;
+                }
+                app.show_toast("Snippet deleted");
+            }
+        }
+        KeyCode::Enter => {
+            let idx = app.snippet_selected;
+            if let Some(snippet) = app.snippet_manager.snippets.get(idx).cloned() {
+                if let Some(host) = app.selected_host() {
+                    app.connect_host = Some(host.name.clone());
+                    // Store the snippet command as a remote command to run
+                    app.port_forward_args = Some(format!("__snippet__:{}", snippet.command));
+                    app.should_quit = true;
+                } else {
+                    app.show_toast("No host selected");
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn handle_snippet_add_key(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => {
+            app.snippet_adding = false;
+            app.snippet_error = None;
+        }
+        KeyCode::Tab => {
+            app.snippet_focused = (app.snippet_focused + 1) % 3;
+            app.snippet_error = None;
+        }
+        KeyCode::Backspace => {
+            let idx = app.snippet_focused;
+            app.snippet_fields[idx].pop();
+            app.snippet_error = None;
+        }
+        KeyCode::Char(c) => {
+            let idx = app.snippet_focused;
+            app.snippet_fields[idx].push(c);
+            app.snippet_error = None;
+        }
+        KeyCode::Enter => {
+            let name = app.snippet_fields[0].trim().to_string();
+            let command = app.snippet_fields[1].trim().to_string();
+            let description = app.snippet_fields[2].trim().to_string();
+
+            if name.is_empty() {
+                app.snippet_error = Some("Name is required".to_string());
+                return;
+            }
+            if command.is_empty() {
+                app.snippet_error = Some("Command is required".to_string());
+                return;
+            }
+
+            let snippet = crate::snippets::Snippet { name, command, description };
+            app.snippet_manager.add(snippet);
+            app.snippet_selected = app.snippet_manager.snippets.len().saturating_sub(1);
+            app.snippet_adding = false;
+            app.snippet_fields = Default::default();
+            app.snippet_focused = 0;
+            app.snippet_error = None;
+            app.show_toast("Snippet saved");
+        }
+        _ => {}
     }
 }

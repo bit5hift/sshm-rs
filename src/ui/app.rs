@@ -2,6 +2,7 @@ use crate::config::SshHost;
 use crate::connectivity::{HostStatus, PingManager};
 use crate::favorites::FavoritesManager;
 use crate::history::HistoryManager;
+use crate::snippets::SnippetManager;
 use nucleo_matcher::pattern::{AtomKind, CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher};
 use std::time::{Duration, Instant};
@@ -16,6 +17,7 @@ pub enum ViewMode {
     Edit,
     Password,
     PortForward,
+    Snippets,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -191,6 +193,14 @@ pub struct App {
 
     // Theme cycling
     pub theme_index: usize,
+
+    // Snippets
+    pub snippet_manager: SnippetManager,
+    pub snippet_selected: usize,
+    pub snippet_adding: bool,
+    pub snippet_fields: [String; 3], // name, command, description
+    pub snippet_focused: usize,
+    pub snippet_error: Option<String>,
 }
 
 impl App {
@@ -244,6 +254,12 @@ impl App {
             sidebar_focused: false,
             config_warnings,
             theme_index: 0,
+            snippet_manager: SnippetManager::load().unwrap_or_default(),
+            snippet_selected: 0,
+            snippet_adding: false,
+            snippet_fields: Default::default(),
+            snippet_focused: 0,
+            snippet_error: None,
         };
         app.hosts = app.sort_hosts(&hosts);
         app.filtered_hosts = app.hosts.clone();

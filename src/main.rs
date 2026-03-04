@@ -4,6 +4,7 @@ mod connectivity;
 mod credentials;
 mod favorites;
 mod history;
+mod snippets;
 mod theme;
 mod ui;
 

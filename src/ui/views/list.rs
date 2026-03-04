@@ -66,6 +66,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         ViewMode::Edit => draw_host_form(f, app, area, " EDIT SSH HOST "),
         ViewMode::Password => draw_password_overlay(f, app, area),
         ViewMode::PortForward => draw_port_forward_overlay(f, app, area),
+        ViewMode::Snippets => draw_snippets_overlay(f, app, area),
         _ => {}
     }
 }
@@ -867,6 +868,145 @@ fn draw_port_forward_overlay(f: &mut Frame, app: &App, area: Rect) {
         "  Tab: navigate | Left/Right: type | Enter: connect | Esc: cancel",
         styles::help_text_style(),
     )));
+
+    let paragraph = Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(styles::border_focused_style())
+            .style(Style::default().bg(styles::bg()).fg(styles::fg())),
+    );
+    f.render_widget(paragraph, popup_area);
+}
+
+fn draw_snippets_overlay(f: &mut Frame, app: &App, area: Rect) {
+    let popup_width = 64u16.min(area.width.saturating_sub(4));
+
+    // Dynamic height: accommodate snippet list or add form
+    let content_lines = if app.snippet_adding {
+        10u16 // title + blank + 3 fields + blank + error? + help
+    } else {
+        let snippet_count = app.snippet_manager.snippets.len() as u16;
+        (6 + snippet_count.max(1)).min(24)
+    };
+    let popup_height = (content_lines + 2).min(area.height.saturating_sub(4));
+    let x = (area.width.saturating_sub(popup_width)) / 2;
+    let y = (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect::new(x, y, popup_width, popup_height);
+
+    f.render_widget(Clear, popup_area);
+
+    let mut lines = vec![
+        Line::from(Span::styled(
+            " COMMAND SNIPPETS ",
+            Style::default()
+                .fg(styles::bg())
+                .bg(styles::primary())
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+    ];
+
+    if app.snippet_adding {
+        // Add-snippet form
+        let field_labels = ["  Name        ", "  Command     ", "  Description "];
+        for (i, label) in field_labels.iter().enumerate() {
+            let is_focused = app.snippet_focused == i;
+            let indicator = if is_focused { "> " } else { "  " };
+            let label_style = if is_focused {
+                Style::default().fg(styles::primary()).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(styles::muted())
+            };
+            let cursor = if is_focused { "_" } else { "" };
+            lines.push(Line::from(vec![
+                Span::styled(indicator, Style::default().fg(styles::primary())),
+                Span::styled(*label, label_style),
+                Span::styled(
+                    format!("{}{cursor}", app.snippet_fields[i]),
+                    Style::default().fg(styles::fg()),
+                ),
+            ]));
+        }
+
+        lines.push(Line::from(""));
+
+        if let Some(ref err) = app.snippet_error {
+            lines.push(Line::from(Span::styled(
+                format!("  Error: {err}"),
+                Style::default().fg(styles::red()),
+            )));
+            lines.push(Line::from(""));
+        }
+
+        lines.push(Line::from(Span::styled(
+            "  Tab: next field | Enter: save | Esc: cancel",
+            styles::help_text_style(),
+        )));
+    } else {
+        // Snippet list
+        if app.snippet_manager.snippets.is_empty() {
+            lines.push(Line::from(Span::styled(
+                "  No snippets saved yet. Press 'a' to add one.",
+                Style::default().fg(styles::muted()),
+            )));
+        } else {
+            for (i, snippet) in app.snippet_manager.snippets.iter().enumerate() {
+                let is_selected = i == app.snippet_selected;
+                let indicator = if is_selected { "> " } else { "  " };
+
+                let name_style = if is_selected {
+                    Style::default()
+                        .fg(styles::primary())
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(styles::fg())
+                };
+
+                // Truncate command preview to fit
+                let max_cmd = (popup_width as usize).saturating_sub(20);
+                let cmd_preview = if snippet.command.len() > max_cmd {
+                    format!("{}...", &snippet.command[..max_cmd.saturating_sub(3)])
+                } else {
+                    snippet.command.clone()
+                };
+
+                let row_style = if is_selected {
+                    Style::default().bg(styles::selection_bg())
+                } else {
+                    Style::default()
+                };
+
+                lines.push(Line::from(vec![
+                    Span::styled(format!("{indicator}"), Style::default().fg(styles::primary())),
+                    Span::styled(format!("{:<16} ", snippet.name), name_style),
+                    Span::styled(cmd_preview, Style::default().fg(styles::cyan())),
+                ]).style(row_style));
+
+                // Show description on the next line if selected and non-empty
+                if is_selected && !snippet.description.is_empty() {
+                    lines.push(Line::from(vec![
+                        Span::styled("    ", Style::default()),
+                        Span::styled(&snippet.description, Style::default().fg(styles::muted())),
+                    ]));
+                }
+            }
+        }
+
+        lines.push(Line::from(""));
+
+        let selected_host = app.selected_host().map(|h| h.name.as_str()).unwrap_or("none");
+        lines.push(Line::from(vec![
+            Span::styled("  Host: ", Style::default().fg(styles::muted())),
+            Span::styled(selected_host, Style::default().fg(styles::fg()).add_modifier(Modifier::BOLD)),
+        ]));
+
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "  a: add | d: delete | Enter: run on host | Esc: close",
+            styles::help_text_style(),
+        )));
+    }
 
     let paragraph = Paragraph::new(lines).block(
         Block::default()
