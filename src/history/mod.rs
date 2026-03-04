@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // History module - connection history tracking with port forwarding support
 use anyhow::Result;
 use chrono::{DateTime, Utc};

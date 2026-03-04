@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use ratatui::style::{Color, Modifier, Style};
 
 // Tokyo Night color palette

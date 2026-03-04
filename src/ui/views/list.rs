@@ -40,6 +40,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     match app.view_mode {
         ViewMode::DeleteConfirm => draw_delete_confirm(f, app, area),
         ViewMode::Info => draw_info_overlay(f, app, area),
+        ViewMode::Add => draw_add_form(f, app, area),
         _ => {}
     }
 }
@@ -345,6 +346,80 @@ fn draw_info_overlay(f: &mut Frame, app: &App, area: Rect) {
             styles::help_text_style(),
         )),
     ];
+
+    let paragraph = Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(styles::border_focused_style())
+            .style(Style::default().bg(styles::BG).fg(styles::FG)),
+    );
+    f.render_widget(paragraph, popup_area);
+}
+
+fn draw_add_form(f: &mut Frame, app: &App, area: Rect) {
+    use crate::ui::app::AddField;
+
+    let popup_width = 60u16.min(area.width.saturating_sub(4));
+    let popup_height = 18u16.min(area.height.saturating_sub(4));
+    let x = (area.width.saturating_sub(popup_width)) / 2;
+    let y = (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect::new(x, y, popup_width, popup_height);
+
+    f.render_widget(Clear, popup_area);
+
+    let mut lines = vec![
+        Line::from(Span::styled(
+            " ADD SSH HOST ",
+            Style::default()
+                .fg(styles::BG)
+                .bg(styles::PRIMARY)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+    ];
+
+    for field in AddField::ALL {
+        let idx = field as usize;
+        let is_focused = app.add_focused == field;
+        let label = format!("  {:12} ", field.label());
+        let value = &app.add_fields[idx];
+        let cursor = if is_focused { "_" } else { "" };
+
+        let label_style = if is_focused {
+            Style::default().fg(styles::PRIMARY).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(styles::MUTED)
+        };
+
+        let value_style = if is_focused {
+            Style::default().fg(styles::FG)
+        } else {
+            Style::default().fg(styles::FG)
+        };
+
+        let indicator = if is_focused { "> " } else { "  " };
+
+        lines.push(Line::from(vec![
+            Span::styled(indicator, Style::default().fg(styles::PRIMARY)),
+            Span::styled(label, label_style),
+            Span::styled(format!("{value}{cursor}"), value_style),
+        ]));
+    }
+
+    lines.push(Line::from(""));
+
+    if let Some(ref err) = app.add_error {
+        lines.push(Line::from(Span::styled(
+            format!("  Error: {err}"),
+            Style::default().fg(styles::RED),
+        )));
+        lines.push(Line::from(""));
+    }
+
+    lines.push(Line::from(Span::styled(
+        "  Tab/Arrows: navigate | Enter: save | Esc: cancel",
+        styles::help_text_style(),
+    )));
 
     let paragraph = Paragraph::new(lines).block(
         Block::default()

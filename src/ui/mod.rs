@@ -26,7 +26,7 @@ pub fn run_tui() -> Result<()> {
     let history = HistoryManager::load().ok();
 
     // Create app state
-    let mut app = App::new(hosts, history);
+    let mut app = App::new(hosts, history, config_path);
 
     // Setup terminal
     enable_raw_mode()?;

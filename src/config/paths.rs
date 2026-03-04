@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // Platform-aware path helpers for SSH and SSHM config directories
 use anyhow::Result;
 use std::path::PathBuf;

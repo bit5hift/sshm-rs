@@ -9,6 +9,61 @@ pub enum ViewMode {
     Help,
     DeleteConfirm,
     Info,
+    Add,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AddField {
+    Name,
+    Hostname,
+    User,
+    Port,
+    Identity,
+    Tags,
+}
+
+impl AddField {
+    pub fn label(self) -> &'static str {
+        match self {
+            AddField::Name => "Name",
+            AddField::Hostname => "Hostname",
+            AddField::User => "User",
+            AddField::Port => "Port",
+            AddField::Identity => "IdentityFile",
+            AddField::Tags => "Tags",
+        }
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            AddField::Name => AddField::Hostname,
+            AddField::Hostname => AddField::User,
+            AddField::User => AddField::Port,
+            AddField::Port => AddField::Identity,
+            AddField::Identity => AddField::Tags,
+            AddField::Tags => AddField::Name,
+        }
+    }
+
+    pub fn prev(self) -> Self {
+        match self {
+            AddField::Name => AddField::Tags,
+            AddField::Hostname => AddField::Name,
+            AddField::User => AddField::Hostname,
+            AddField::Port => AddField::User,
+            AddField::Identity => AddField::Port,
+            AddField::Tags => AddField::Identity,
+        }
+    }
+
+    pub const ALL: [AddField; 6] = [
+        AddField::Name,
+        AddField::Hostname,
+        AddField::User,
+        AddField::Port,
+        AddField::Identity,
+        AddField::Tags,
+    ];
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,10 +123,16 @@ pub struct App {
 
     // Delete confirmation target
     pub delete_target: Option<String>,
+
+    // Add form state
+    pub add_fields: [String; 6], // name, hostname, user, port, identity, tags
+    pub add_focused: AddField,
+    pub add_error: Option<String>,
+    pub config_path: std::path::PathBuf,
 }
 
 impl App {
-    pub fn new(hosts: Vec<SshHost>, history: Option<HistoryManager>) -> Self {
+    pub fn new(hosts: Vec<SshHost>, history: Option<HistoryManager>, config_path: std::path::PathBuf) -> Self {
         let mut app = App {
             hosts: Vec::new(),
             filtered_hosts: Vec::new(),
@@ -88,10 +149,28 @@ impl App {
             connect_host: None,
             should_quit: false,
             delete_target: None,
+            add_fields: Default::default(),
+            add_focused: AddField::Name,
+            add_error: None,
+            config_path,
         };
         app.hosts = app.sort_hosts(&hosts);
         app.filtered_hosts = app.hosts.clone();
         app
+    }
+
+    pub fn reset_add_form(&mut self) {
+        self.add_fields = Default::default();
+        self.add_fields[3] = "22".to_string(); // default port
+        self.add_focused = AddField::Name;
+        self.add_error = None;
+    }
+
+    pub fn reload_hosts(&mut self) {
+        if let Ok(hosts) = crate::config::parse_ssh_config(&self.config_path) {
+            self.hosts = self.sort_hosts(&hosts);
+            self.apply_filter();
+        }
     }
 
     pub fn visible_rows(&self) -> usize {

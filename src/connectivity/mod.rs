@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // Connectivity module - SSH ping and connection management
 use anyhow::Result;
 use std::collections::HashMap;

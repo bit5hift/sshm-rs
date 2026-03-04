@@ -1,4 +1,4 @@
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use std::time::Duration;
 
 use crate::ui::app::{App, ViewMode};
@@ -7,7 +7,13 @@ use crate::ui::app::{App, ViewMode};
 pub fn poll_event(app: &mut App) -> anyhow::Result<bool> {
     if event::poll(Duration::from_millis(100))? {
         match event::read()? {
-            Event::Key(key) => handle_key(app, key),
+            Event::Key(key) => {
+                // On Windows, crossterm sends both Press and Release events.
+                // Only handle Press to avoid double-processing.
+                if key.kind == KeyEventKind::Press {
+                    handle_key(app, key);
+                }
+            }
             Event::Resize(w, h) => {
                 app.width = w;
                 app.height = h;
@@ -31,6 +37,7 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         ViewMode::Help => handle_help_key(app, key),
         ViewMode::DeleteConfirm => handle_delete_key(app, key),
         ViewMode::Info => handle_info_key(app, key),
+        ViewMode::Add => handle_add_key(app, key),
     }
 }
 
@@ -117,9 +124,12 @@ fn handle_table_key(app: &mut App, key: KeyEvent) {
         KeyCode::Tab => {
             app.search_mode = true;
         }
-        // 'a' and 'e' are placeholders
-        KeyCode::Char('a') | KeyCode::Char('e') => {
-            // TODO: add/edit forms
+        KeyCode::Char('a') => {
+            app.reset_add_form();
+            app.view_mode = ViewMode::Add;
+        }
+        KeyCode::Char('e') => {
+            // TODO: edit form
         }
         _ => {}
     }
@@ -142,7 +152,12 @@ fn handle_delete_key(app: &mut App, key: KeyEvent) {
             app.view_mode = ViewMode::List;
         }
         KeyCode::Enter | KeyCode::Char('y') => {
-            // TODO: actually delete from config when parser is ready
+            if let Some(ref target) = app.delete_target {
+                if let Some(host) = app.hosts.iter().find(|h| h.name == *target).cloned() {
+                    let _ = crate::config::delete_host(&host);
+                    app.reload_hosts();
+                }
+            }
             app.delete_target = None;
             app.view_mode = ViewMode::List;
         }
@@ -154,6 +169,81 @@ fn handle_info_key(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Esc | KeyCode::Char('q') | KeyCode::Enter => {
             app.view_mode = ViewMode::List;
+        }
+        _ => {}
+    }
+}
+
+fn handle_add_key(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => {
+            app.view_mode = ViewMode::List;
+        }
+        KeyCode::Tab | KeyCode::Down => {
+            app.add_focused = app.add_focused.next();
+        }
+        KeyCode::BackTab | KeyCode::Up => {
+            app.add_focused = app.add_focused.prev();
+        }
+        KeyCode::Backspace => {
+            let idx = app.add_focused as usize;
+            app.add_fields[idx].pop();
+            app.add_error = None;
+        }
+        KeyCode::Char(c) => {
+            let idx = app.add_focused as usize;
+            app.add_fields[idx].push(c);
+            app.add_error = None;
+        }
+        KeyCode::Enter => {
+            // Validate and save
+            let name = app.add_fields[0].trim().to_string();
+            let hostname = app.add_fields[1].trim().to_string();
+
+            if name.is_empty() {
+                app.add_error = Some("Name is required".to_string());
+                return;
+            }
+            if hostname.is_empty() {
+                app.add_error = Some("Hostname is required".to_string());
+                return;
+            }
+
+            let tags: Vec<String> = app.add_fields[5]
+                .split(',')
+                .map(|t| t.trim().to_string())
+                .filter(|t| !t.is_empty())
+                .collect();
+
+            let host = crate::config::SshHost {
+                name,
+                hostname,
+                user: app.add_fields[2].trim().to_string(),
+                port: if app.add_fields[3].trim().is_empty() {
+                    "22".to_string()
+                } else {
+                    app.add_fields[3].trim().to_string()
+                },
+                identity: app.add_fields[4].trim().to_string(),
+                proxy_jump: String::new(),
+                proxy_command: String::new(),
+                options: String::new(),
+                remote_command: String::new(),
+                request_tty: String::new(),
+                tags,
+                source_file: app.config_path.clone(),
+                line_number: 0,
+            };
+
+            match crate::config::add_host(&app.config_path, &host) {
+                Ok(()) => {
+                    app.reload_hosts();
+                    app.view_mode = ViewMode::List;
+                }
+                Err(e) => {
+                    app.add_error = Some(format!("{e}"));
+                }
+            }
         }
         _ => {}
     }

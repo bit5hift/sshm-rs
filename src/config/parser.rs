@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // SSH config file parser
 // Reference: Go implementation at sshm/internal/config/ssh.go
 //
