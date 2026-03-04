@@ -56,11 +56,11 @@ pub fn draw(f: &mut Frame, area: Rect) {
         Line::from(""),
         Line::from(vec![
             Span::styled("  a        ", key_style),
-            Span::styled("Add new host (placeholder)", desc_style),
+            Span::styled("Add new host", desc_style),
         ]),
         Line::from(vec![
             Span::styled("  e        ", key_style),
-            Span::styled("Edit selected host (placeholder)", desc_style),
+            Span::styled("Edit selected host", desc_style),
         ]),
         Line::from(vec![
             Span::styled("  d        ", key_style),

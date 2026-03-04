@@ -40,7 +40,8 @@ pub fn draw(f: &mut Frame, app: &App) {
     match app.view_mode {
         ViewMode::DeleteConfirm => draw_delete_confirm(f, app, area),
         ViewMode::Info => draw_info_overlay(f, app, area),
-        ViewMode::Add => draw_add_form(f, app, area),
+        ViewMode::Add => draw_host_form(f, app, area, " ADD SSH HOST "),
+        ViewMode::Edit => draw_host_form(f, app, area, " EDIT SSH HOST "),
         ViewMode::Password => draw_password_overlay(f, app, area),
         _ => {}
     }
@@ -364,7 +365,7 @@ fn draw_info_overlay(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(paragraph, popup_area);
 }
 
-fn draw_add_form(f: &mut Frame, app: &App, area: Rect) {
+fn draw_host_form(f: &mut Frame, app: &App, area: Rect, title: &str) {
     use crate::ui::app::AddField;
 
     let popup_width = 60u16.min(area.width.saturating_sub(4));
@@ -377,7 +378,7 @@ fn draw_add_form(f: &mut Frame, app: &App, area: Rect) {
 
     let mut lines = vec![
         Line::from(Span::styled(
-            " ADD SSH HOST ",
+            title,
             Style::default()
                 .fg(styles::BG)
                 .bg(styles::PRIMARY)

@@ -10,6 +10,7 @@ pub enum ViewMode {
     DeleteConfirm,
     Info,
     Add,
+    Edit,
     Password,
 }
 
@@ -134,11 +135,14 @@ pub struct App {
     // Delete confirmation target
     pub delete_target: Option<String>,
 
-    // Add form state
+    // Add/Edit form state
     pub add_fields: [String; 7], // name, hostname, user, port, password, identity, tags
     pub add_focused: AddField,
     pub add_error: Option<String>,
     pub config_path: std::path::PathBuf,
+
+    // Edit mode: original host name being edited
+    pub edit_target: Option<String>,
 
     // Password overlay state
     pub password_input: String,
@@ -167,6 +171,7 @@ impl App {
             add_focused: AddField::Name,
             add_error: None,
             config_path,
+            edit_target: None,
             password_input: String::new(),
             password_target: None,
         };
