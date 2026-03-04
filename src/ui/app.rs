@@ -17,6 +17,7 @@ pub enum ViewMode {
     Edit,
     Password,
     PortForward,
+    Broadcast,
     Snippets,
 }
 
@@ -194,6 +195,11 @@ pub struct App {
     // Theme cycling
     pub theme_index: usize,
 
+    // Command broadcast
+    pub broadcast_command: String,
+    pub broadcast_error: Option<String>,
+    pub pending_broadcast: Option<(Vec<String>, String)>,
+
     // Snippets
     pub snippet_manager: SnippetManager,
     pub snippet_selected: usize,
@@ -254,6 +260,9 @@ impl App {
             sidebar_focused: false,
             config_warnings,
             theme_index: 0,
+            broadcast_command: String::new(),
+            broadcast_error: None,
+            pending_broadcast: None,
             snippet_manager: SnippetManager::load().unwrap_or_default(),
             snippet_selected: 0,
             snippet_adding: false,

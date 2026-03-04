@@ -405,6 +405,61 @@ pub fn connect_ssh_with_port_forward(
     std::process::exit(status.code().unwrap_or(1));
 }
 
+/// Run a command on multiple SSH hosts sequentially, printing output prefixed with hostname.
+/// After all hosts have been executed, waits for the user to press Enter before returning.
+pub fn broadcast_command(hosts: &[&str], command: &str, config_file: Option<&str>) -> Result<()> {
+    use std::io::Write;
+
+    println!();
+    println!("=== COMMAND BROADCAST ===");
+    println!("Command: {command}");
+    println!("Hosts:   {}", hosts.join(", "));
+    println!("=========================================");
+    println!();
+
+    for &host in hosts {
+        println!("--- [{host}] ---");
+
+        let mut cmd = std::process::Command::new("ssh");
+
+        if let Some(cfg) = config_file {
+            cmd.args(["-F", cfg]);
+        }
+
+        // Use BatchMode and connect timeout to avoid hanging on interactive prompts
+        cmd.args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=10"]);
+        cmd.arg(host);
+        cmd.arg(command);
+
+        cmd.stdin(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit());
+
+        match cmd.status() {
+            Ok(status) => {
+                let code = status.code().unwrap_or(-1);
+                if code != 0 {
+                    println!("[{host}] exited with code {code}");
+                }
+            }
+            Err(e) => {
+                eprintln!("[{host}] failed to execute: {e}");
+            }
+        }
+
+        println!();
+    }
+
+    println!("=========================================");
+    println!("Broadcast complete. Press Enter to return to sshm-rs...");
+    std::io::stdout().flush()?;
+
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input)?;
+
+    Ok(())
+}
+
 /// Fallback: connect using the system `ssh` command (for key-based auth).
 fn connect_ssh_system(
     host: &str,

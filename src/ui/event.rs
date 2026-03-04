@@ -46,6 +46,7 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         ViewMode::Edit => handle_edit_key(app, key),
         ViewMode::Password => handle_password_key(app, key),
         ViewMode::PortForward => handle_port_forward_key(app, key),
+        ViewMode::Broadcast => handle_broadcast_key(app, key),
         ViewMode::Snippets => handle_snippets_key(app, key),
     }
 }
@@ -257,6 +258,13 @@ fn handle_table_key(app: &mut App, key: KeyEvent) {
                 app.pf_target = Some(host.name.clone());
                 app.prefill_pf_form(&host.name);
                 app.view_mode = ViewMode::PortForward;
+            }
+        }
+        KeyCode::Char('b') => {
+            if app.has_selection() {
+                app.broadcast_command.clear();
+                app.broadcast_error = None;
+                app.view_mode = ViewMode::Broadcast;
             }
         }
         KeyCode::Char('y') => {
@@ -777,6 +785,43 @@ fn handle_password_key(app: &mut App, key: KeyEvent) {
         }
         KeyCode::Char(c) => {
             app.password_input.push(c);
+        }
+        _ => {}
+    }
+}
+
+fn handle_broadcast_key(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => {
+            app.broadcast_command.clear();
+            app.broadcast_error = None;
+            app.view_mode = ViewMode::List;
+        }
+        KeyCode::Backspace => {
+            app.broadcast_command.pop();
+            app.broadcast_error = None;
+        }
+        KeyCode::Char(c) => {
+            app.broadcast_command.push(c);
+            app.broadcast_error = None;
+        }
+        KeyCode::Enter => {
+            let command = app.broadcast_command.trim().to_string();
+            if command.is_empty() {
+                app.broadcast_error = Some("Command cannot be empty".to_string());
+                return;
+            }
+
+            let hosts: Vec<String> = app.selected_hosts.iter().cloned().collect();
+
+            // Exit TUI, run broadcast, then re-enter
+            app.broadcast_command.clear();
+            app.broadcast_error = None;
+            app.view_mode = ViewMode::List;
+            app.should_quit = true;
+
+            // Store broadcast info in app for main loop to process after TUI exits
+            app.pending_broadcast = Some((hosts, command));
         }
         _ => {}
     }

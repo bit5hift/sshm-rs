@@ -66,6 +66,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         ViewMode::Edit => draw_host_form(f, app, area, " EDIT SSH HOST "),
         ViewMode::Password => draw_password_overlay(f, app, area),
         ViewMode::PortForward => draw_port_forward_overlay(f, app, area),
+        ViewMode::Broadcast => draw_broadcast_overlay(f, app, area),
         ViewMode::Snippets => draw_snippets_overlay(f, app, area),
         _ => {}
     }
@@ -338,7 +339,7 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
     } else if app.has_selection() {
         let count = app.selected_hosts.len();
         (
-            format!(" {count} selected | Space: toggle | d: delete | Ctrl+a: select all | Esc: clear"),
+            format!(" {count} selected | Space: toggle | b: broadcast | d: delete | Ctrl+a: all | Esc: clear"),
             Style::default().fg(styles::cyan()),
         )
     } else {
@@ -879,12 +880,90 @@ fn draw_port_forward_overlay(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(paragraph, popup_area);
 }
 
+fn draw_broadcast_overlay(f: &mut Frame, app: &App, area: Rect) {
+    let selected_count = app.selected_hosts.len();
+    let host_lines = selected_count.min(8) as u16;
+    let base_height = 7u16 + host_lines;
+    let popup_height = base_height.min(area.height.saturating_sub(4));
+    let popup_width = 60u16.min(area.width.saturating_sub(4));
+    let x = (area.width.saturating_sub(popup_width)) / 2;
+    let y = (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect::new(x, y, popup_width, popup_height);
+
+    f.render_widget(Clear, popup_area);
+
+    let mut lines = vec![
+        Line::from(Span::styled(
+            " COMMAND BROADCAST ",
+            Style::default()
+                .fg(styles::bg())
+                .bg(styles::cyan())
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+    ];
+
+    // List selected hosts (up to 8, with ellipsis if more)
+    let mut sorted_hosts: Vec<&String> = app.selected_hosts.iter().collect();
+    sorted_hosts.sort();
+
+    for (i, host_name) in sorted_hosts.iter().enumerate() {
+        if i >= 8 {
+            let remaining = selected_count - 8;
+            lines.push(Line::from(Span::styled(
+                format!("  ... and {remaining} more"),
+                Style::default().fg(styles::muted()),
+            )));
+            break;
+        }
+        lines.push(Line::from(vec![
+            Span::styled("  ", Style::default()),
+            Span::styled("\u{25cf} ", Style::default().fg(styles::cyan())),
+            Span::styled(host_name.as_str(), Style::default().fg(styles::fg())),
+        ]));
+    }
+
+    lines.push(Line::from(""));
+
+    // Command input field with cursor
+    lines.push(Line::from(vec![
+        Span::styled("  Command: ", Style::default().fg(styles::muted())),
+        Span::styled(
+            format!("{}_", app.broadcast_command),
+            Style::default().fg(styles::fg()),
+        ),
+    ]));
+
+    lines.push(Line::from(""));
+
+    if let Some(ref err) = app.broadcast_error {
+        lines.push(Line::from(Span::styled(
+            format!("  Error: {err}"),
+            Style::default().fg(styles::red()),
+        )));
+        lines.push(Line::from(""));
+    }
+
+    lines.push(Line::from(Span::styled(
+        "  Enter: execute | Esc: cancel",
+        styles::help_text_style(),
+    )));
+
+    let paragraph = Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(styles::cyan()))
+            .style(Style::default().bg(styles::bg()).fg(styles::fg())),
+    );
+    f.render_widget(paragraph, popup_area);
+}
+
 fn draw_snippets_overlay(f: &mut Frame, app: &App, area: Rect) {
     let popup_width = 64u16.min(area.width.saturating_sub(4));
 
-    // Dynamic height: accommodate snippet list or add form
     let content_lines = if app.snippet_adding {
-        10u16 // title + blank + 3 fields + blank + error? + help
+        10u16
     } else {
         let snippet_count = app.snippet_manager.snippets.len() as u16;
         (6 + snippet_count.max(1)).min(24)
@@ -908,7 +987,6 @@ fn draw_snippets_overlay(f: &mut Frame, app: &App, area: Rect) {
     ];
 
     if app.snippet_adding {
-        // Add-snippet form
         let field_labels = ["  Name        ", "  Command     ", "  Description "];
         for (i, label) in field_labels.iter().enumerate() {
             let is_focused = app.snippet_focused == i;
@@ -944,7 +1022,6 @@ fn draw_snippets_overlay(f: &mut Frame, app: &App, area: Rect) {
             styles::help_text_style(),
         )));
     } else {
-        // Snippet list
         if app.snippet_manager.snippets.is_empty() {
             lines.push(Line::from(Span::styled(
                 "  No snippets saved yet. Press 'a' to add one.",
@@ -963,7 +1040,6 @@ fn draw_snippets_overlay(f: &mut Frame, app: &App, area: Rect) {
                     Style::default().fg(styles::fg())
                 };
 
-                // Truncate command preview to fit
                 let max_cmd = (popup_width as usize).saturating_sub(20);
                 let cmd_preview = if snippet.command.len() > max_cmd {
                     format!("{}...", &snippet.command[..max_cmd.saturating_sub(3)])
@@ -983,7 +1059,6 @@ fn draw_snippets_overlay(f: &mut Frame, app: &App, area: Rect) {
                     Span::styled(cmd_preview, Style::default().fg(styles::cyan())),
                 ]).style(row_style));
 
-                // Show description on the next line if selected and non-empty
                 if is_selected && !snippet.description.is_empty() {
                     lines.push(Line::from(vec![
                         Span::styled("    ", Style::default()),
@@ -1007,6 +1082,7 @@ fn draw_snippets_overlay(f: &mut Frame, app: &App, area: Rect) {
             styles::help_text_style(),
         )));
     }
+
 
     let paragraph = Paragraph::new(lines).block(
         Block::default()

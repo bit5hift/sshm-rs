@@ -83,6 +83,10 @@ pub fn draw(f: &mut Frame, area: Rect) {
             Span::styled("Delete all selected hosts (when selection active)", desc_style),
         ]),
         Line::from(vec![
+            Span::styled("  b        ", key_style),
+            Span::styled("Broadcast command to selected hosts", desc_style),
+        ]),
+        Line::from(vec![
             Span::styled("  Esc      ", key_style),
             Span::styled("Clear selection", desc_style),
         ]),

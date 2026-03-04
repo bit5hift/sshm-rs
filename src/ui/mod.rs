@@ -69,6 +69,12 @@ pub fn run_tui() -> Result<()> {
         }
     }
 
+    // If the user triggered a broadcast, run it now
+    if let Some((hosts, command)) = app.pending_broadcast.take() {
+        let host_refs: Vec<&str> = hosts.iter().map(String::as_str).collect();
+        crate::connectivity::broadcast_command(&host_refs, &command, None)?;
+    }
+
     Ok(())
 }
 
