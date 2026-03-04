@@ -153,6 +153,10 @@ pub struct App {
     // Toast/flash message
     pub toast_message: Option<String>,
     pub toast_expires: Option<Instant>,
+
+    // Double-click detection
+    pub last_click_time: Option<Instant>,
+    pub last_click_index: Option<usize>,
 }
 
 impl App {
@@ -183,6 +187,8 @@ impl App {
             password_target: None,
             toast_message: None,
             toast_expires: None,
+            last_click_time: None,
+            last_click_index: None,
         };
         app.hosts = app.sort_hosts(&hosts);
         app.filtered_hosts = app.hosts.clone();

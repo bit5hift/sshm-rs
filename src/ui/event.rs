@@ -1,5 +1,5 @@
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::ui::app::{AddField, App, ViewMode};
 
@@ -65,8 +65,24 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
             if mouse.row >= table_top_offset {
                 let clicked_index = app.table_offset + (mouse.row - table_top_offset) as usize;
                 if clicked_index < app.filtered_hosts.len() {
+                    // Double-click detection: same row within 400ms → connect
+                    let now = Instant::now();
+                    if let (Some(last_time), Some(last_idx)) = (app.last_click_time, app.last_click_index) {
+                        if last_idx == clicked_index && now.duration_since(last_time) < Duration::from_millis(400) {
+                            app.selected = clicked_index;
+                            if let Some(host) = app.selected_host() {
+                                app.connect_host = Some(host.name.clone());
+                                app.should_quit = true;
+                            }
+                            app.last_click_time = None;
+                            app.last_click_index = None;
+                            return;
+                        }
+                    }
                     app.selected = clicked_index;
                     app.clamp_offset();
+                    app.last_click_time = Some(now);
+                    app.last_click_index = Some(clicked_index);
                 }
             }
         }
