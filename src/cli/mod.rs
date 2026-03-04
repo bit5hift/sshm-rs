@@ -70,6 +70,12 @@ pub enum Commands {
         /// Shell to generate completions for
         shell: clap_complete::Shell,
     },
+    /// Validate the SSH config file and report warnings
+    Validate {
+        /// SSH config file to validate (default: ~/.ssh/config)
+        #[arg(short = 'c', long = "config")]
+        config_file: Option<String>,
+    },
 }
 
 pub fn run(cli: Cli) -> Result<()> {
@@ -89,6 +95,9 @@ pub fn run(cli: Cli) -> Result<()> {
             let mut cmd = Cli::command();
             clap_complete::generate(shell, &mut cmd, "sshm-rs", &mut std::io::stdout());
             Ok(())
+        }
+        Some(Commands::Validate { config_file }) => {
+            run_validate(config_file.as_deref().or(cli.config_file.as_deref()))
         }
         None => {
             if let Some(host_name) = cli.host {
@@ -193,7 +202,6 @@ fn run_export(output: Option<&str>, config_file: Option<&str>) -> Result<()> {
     };
     let hosts = crate::config::parse_ssh_config(&config_path)?;
 
-    // Create a clean export format (without source_file and line_number)
     let export_data: Vec<serde_json::Value> = hosts
         .iter()
         .map(|h| {
@@ -287,6 +295,27 @@ fn run_import(file: &str, skip_duplicates: bool, config_file: Option<&str>) -> R
 
     eprintln!("Imported {imported} hosts ({skipped} skipped)");
     Ok(())
+}
+
+/// Validate the SSH config file and print any warnings.
+fn run_validate(config_file: Option<&str>) -> Result<()> {
+    let config_path = match config_file {
+        Some(p) => std::path::PathBuf::from(p),
+        None => crate::config::default_ssh_config_path()?,
+    };
+    let hosts = crate::config::parse_ssh_config(&config_path)?;
+    let warnings = crate::config::validate_hosts(&hosts);
+
+    if warnings.is_empty() {
+        println!("No warnings found in SSH config.");
+        Ok(())
+    } else {
+        for w in &warnings {
+            eprintln!("Warning: {}", w);
+        }
+        eprintln!("\n{} warning(s) found.", warnings.len());
+        std::process::exit(1);
+    }
 }
 
 /// Connect to a host: verify it exists, record history, then exec ssh

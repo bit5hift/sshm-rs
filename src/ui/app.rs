@@ -182,12 +182,16 @@ pub struct App {
     pub sidebar_selected: usize,
     pub sidebar_active_tag: Option<String>,
     pub sidebar_focused: bool,
+
+    // Config validation warnings
+    pub config_warnings: Vec<String>,
 }
 
 impl App {
     pub fn new(hosts: Vec<SshHost>, history: Option<HistoryManager>, config_path: std::path::PathBuf) -> Self {
         let ping_manager = PingManager::new(Duration::from_secs(5));
         let favorites = FavoritesManager::load().unwrap_or_default();
+        let config_warnings = crate::config::validate_hosts(&hosts);
         let mut app = App {
             hosts: Vec::new(),
             filtered_hosts: Vec::new(),
@@ -230,6 +234,7 @@ impl App {
             sidebar_selected: 0,
             sidebar_active_tag: None,
             sidebar_focused: false,
+            config_warnings,
         };
         app.hosts = app.sort_hosts(&hosts);
         app.filtered_hosts = app.hosts.clone();
@@ -334,6 +339,7 @@ impl App {
 
     pub fn reload_hosts(&mut self) {
         if let Ok(hosts) = crate::config::parse_ssh_config(&self.config_path) {
+            self.config_warnings = crate::config::validate_hosts(&hosts);
             self.hosts = self.sort_hosts(&hosts);
             self.apply_filter();
             self.refresh_sidebar_tags();

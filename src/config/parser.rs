@@ -892,6 +892,69 @@ fn write_host_block(new_lines: &mut Vec<String>, host: &SshHost) {
 }
 
 // ---------------------------------------------------------------------------
+// Validation
+// ---------------------------------------------------------------------------
+
+/// Validate a list of SSH hosts and return a list of human-readable warning strings.
+///
+/// Checks performed:
+/// - Duplicate host names
+/// - Empty HostName
+/// - Invalid or out-of-range port numbers
+/// - IdentityFile paths that do not exist on disk (with `~` expansion)
+pub fn validate_hosts(hosts: &[SshHost]) -> Vec<String> {
+    let mut warnings = Vec::new();
+    let mut seen_names = std::collections::HashSet::new();
+
+    for host in hosts {
+        // Duplicate name check
+        if !seen_names.insert(&host.name) {
+            warnings.push(format!("Duplicate host name: '{}'", host.name));
+        }
+
+        // Empty hostname
+        if host.hostname.is_empty() {
+            warnings.push(format!("Host '{}': missing HostName", host.name));
+        }
+
+        // Invalid port (not a number or out of range)
+        if !host.port.is_empty() && host.port != "22" {
+            if let Ok(port) = host.port.parse::<u16>() {
+                if port == 0 {
+                    warnings.push(format!("Host '{}': port 0 is invalid", host.name));
+                }
+            } else {
+                warnings.push(format!(
+                    "Host '{}': invalid port '{}'",
+                    host.name, host.port
+                ));
+            }
+        }
+
+        // Identity file with ~ expansion check (warn if doesn't exist)
+        if !host.identity.is_empty() {
+            let expanded = if host.identity.starts_with('~') {
+                if let Some(home) = dirs::home_dir() {
+                    home.join(&host.identity[1..])
+                } else {
+                    std::path::PathBuf::from(&host.identity)
+                }
+            } else {
+                std::path::PathBuf::from(&host.identity)
+            };
+            if !expanded.exists() {
+                warnings.push(format!(
+                    "Host '{}': IdentityFile not found: {}",
+                    host.name, host.identity
+                ));
+            }
+        }
+    }
+
+    warnings
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -1067,5 +1130,92 @@ Host myhost
         assert_eq!(original, backup);
         // Clean up
         let _ = fs::remove_file(backup_path);
+    }
+
+    // -----------------------------------------------------------------------
+    // validate_hosts tests
+    // -----------------------------------------------------------------------
+
+    fn make_host(name: &str, hostname: &str, port: &str, identity: &str) -> SshHost {
+        SshHost {
+            name: name.to_string(),
+            hostname: hostname.to_string(),
+            user: String::new(),
+            port: port.to_string(),
+            identity: identity.to_string(),
+            proxy_jump: String::new(),
+            proxy_command: String::new(),
+            options: String::new(),
+            remote_command: String::new(),
+            request_tty: String::new(),
+            tags: Vec::new(),
+            source_file: std::path::PathBuf::new(),
+            line_number: 0,
+        }
+    }
+
+    #[test]
+    fn test_validate_no_warnings() {
+        let hosts = vec![make_host("good", "example.com", "22", "")];
+        let warnings = validate_hosts(&hosts);
+        assert!(warnings.is_empty(), "expected no warnings, got: {:?}", warnings);
+    }
+
+    #[test]
+    fn test_validate_duplicate_name() {
+        let hosts = vec![
+            make_host("dup", "a.com", "22", ""),
+            make_host("dup", "b.com", "22", ""),
+        ];
+        let warnings = validate_hosts(&hosts);
+        assert!(
+            warnings.iter().any(|w| w.contains("Duplicate host name") && w.contains("dup")),
+            "expected duplicate warning, got: {:?}",
+            warnings
+        );
+    }
+
+    #[test]
+    fn test_validate_empty_hostname() {
+        let hosts = vec![make_host("nohost", "", "22", "")];
+        let warnings = validate_hosts(&hosts);
+        assert!(
+            warnings.iter().any(|w| w.contains("missing HostName")),
+            "expected missing HostName warning, got: {:?}",
+            warnings
+        );
+    }
+
+    #[test]
+    fn test_validate_invalid_port() {
+        let hosts = vec![make_host("badport", "x.com", "notaport", "")];
+        let warnings = validate_hosts(&hosts);
+        assert!(
+            warnings.iter().any(|w| w.contains("invalid port")),
+            "expected invalid port warning, got: {:?}",
+            warnings
+        );
+    }
+
+    #[test]
+    fn test_validate_port_zero() {
+        let hosts = vec![make_host("zeroport", "x.com", "0", "")];
+        let warnings = validate_hosts(&hosts);
+        assert!(
+            warnings.iter().any(|w| w.contains("port 0 is invalid")),
+            "expected port-0 warning, got: {:?}",
+            warnings
+        );
+    }
+
+    #[test]
+    fn test_validate_identity_file_missing() {
+        let hosts = vec![make_host("idmissing", "x.com", "22", "/nonexistent/path/id_rsa")];
+        let warnings = validate_hosts(&hosts);
+        assert!(
+            warnings.iter().any(|w| w.contains("IdentityFile not found")),
+            "expected IdentityFile-not-found warning, got: {:?}",
+            warnings
+        );
     }
 }

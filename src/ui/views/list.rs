@@ -334,9 +334,17 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
     let sort_label = app.sort_mode.label();
     let right = format!(" [{count}/{total}] Sort: {sort_label} ");
 
+    // Build optional warning indicator
+    let warn_count = app.config_warnings.len();
+    let warn_text = if warn_count > 0 {
+        format!(" \u{26a0} {} ", warn_count)
+    } else {
+        String::new()
+    };
+
     // Calculate padding
     let left_len = left_text.len();
-    let right_len = right.len();
+    let right_len = right.len() + warn_text.len();
     let total_len = area.width as usize;
     let pad = if total_len > left_len + right_len {
         total_len - left_len - right_len
@@ -344,12 +352,21 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
         1
     };
 
-    let bar = Line::from(vec![
+    let mut spans = vec![
         Span::styled(left_text, left_style),
         Span::raw(" ".repeat(pad)),
-        Span::styled(right, Style::default().fg(styles::PRIMARY)),
-    ]);
+    ];
+    if warn_count > 0 {
+        spans.push(Span::styled(
+            warn_text,
+            Style::default()
+                .fg(styles::YELLOW)
+                .add_modifier(Modifier::BOLD),
+        ));
+    }
+    spans.push(Span::styled(right, Style::default().fg(styles::PRIMARY)));
 
+    let bar = Line::from(spans);
     let paragraph = Paragraph::new(bar).style(Style::default().bg(styles::BG));
     f.render_widget(paragraph, area);
 }
@@ -484,6 +501,32 @@ fn draw_info_overlay(f: &mut Frame, app: &App, area: Rect) {
         Span::styled("  Last used: ", Style::default().fg(styles::MUTED)),
         Span::styled(last_login_display, Style::default().fg(styles::FG)),
     ]));
+
+    // Collect warnings that concern this host
+    let host_warnings: Vec<&String> = app
+        .config_warnings
+        .iter()
+        .filter(|w| {
+            w.contains(&format!("host name: '{}'", host.name))
+                || w.starts_with(&format!("Host '{}': ", host.name))
+        })
+        .collect();
+
+    if !host_warnings.is_empty() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "  Warnings:",
+            Style::default()
+                .fg(styles::YELLOW)
+                .add_modifier(Modifier::BOLD),
+        )));
+        for w in host_warnings {
+            lines.push(Line::from(Span::styled(
+                format!("  \u{26a0} {}", w),
+                Style::default().fg(styles::RED),
+            )));
+        }
+    }
 
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
