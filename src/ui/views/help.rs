@@ -8,7 +8,7 @@ use crate::ui::styles;
 
 pub fn draw(f: &mut Frame, area: Rect) {
     let popup_width = 68u16.min(area.width.saturating_sub(4));
-    let popup_height = 40u16.min(area.height.saturating_sub(4));
+    let popup_height = 42u16.min(area.height.saturating_sub(4));
     let x = (area.width.saturating_sub(popup_width)) / 2;
     let y = (area.height.saturating_sub(popup_height)) / 2;
     let popup_area = Rect::new(x, y, popup_width, popup_height);
@@ -145,6 +145,18 @@ pub fn draw(f: &mut Frame, area: Rect) {
         Line::from(vec![
             Span::styled("  S        ", key_style),
             Span::styled("Command snippets", desc_style),
+        ]),
+        Line::from(""),
+        // File Transfer
+        Line::from(Span::styled("File Transfer", section_style)),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  x        ", key_style),
+            Span::styled("Quick SFTP session", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  X        ", key_style),
+            Span::styled("SCP file transfer", desc_style),
         ]),
         Line::from(""),
         // System

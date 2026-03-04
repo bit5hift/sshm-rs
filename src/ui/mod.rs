@@ -51,21 +51,27 @@ pub fn run_tui() -> Result<()> {
     result?;
 
     // If the user chose to connect, exec ssh
-    if let Some(host_name) = app.connect_host.take() {
+    if let Some(action) = app.connect_host.take() {
         let pf_args = app.port_forward_args.take();
 
-        // Record history (only if not a port-forward, which already recorded)
-        if pf_args.is_none() {
-            if let Some(ref mut history) = app.history {
-                let _ = history.record_connection(&host_name);
+        if let Some(host_name) = action.strip_prefix("__sftp__:") {
+            crate::connectivity::launch_sftp(host_name, None)?;
+        } else if let Some(rest) = action.strip_prefix("__scp__:") {
+            let parts: Vec<&str> = rest.splitn(4, ':').collect();
+            if parts.len() == 4 {
+                let host = parts[0];
+                let upload = parts[1] == "upload";
+                let local = parts[2];
+                let remote = parts[3];
+                crate::connectivity::launch_scp(host, local, remote, upload, None)?;
             }
-        }
-
-        if let Some(ref pf_arg) = pf_args {
-            // Port forwarding: use system ssh with extra args
-            crate::connectivity::connect_ssh_with_port_forward(&host_name, pf_arg, None)?;
+        } else if let Some(ref pf_arg) = pf_args {
+            crate::connectivity::connect_ssh_with_port_forward(&action, pf_arg, None)?;
         } else {
-            crate::connectivity::connect_ssh(&host_name, &[], None, false)?;
+            if let Some(ref mut history) = app.history {
+                let _ = history.record_connection(&action);
+            }
+            crate::connectivity::connect_ssh(&action, &[], None, false)?;
         }
     }
 

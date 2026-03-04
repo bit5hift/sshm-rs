@@ -68,6 +68,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         ViewMode::PortForward => draw_port_forward_overlay(f, app, area),
         ViewMode::Broadcast => draw_broadcast_overlay(f, app, area),
         ViewMode::Snippets => draw_snippets_overlay(f, app, area),
+        ViewMode::FileTransfer => draw_file_transfer_overlay(f, app, area),
         _ => {}
     }
 }
@@ -655,6 +656,117 @@ fn draw_host_form(f: &mut Frame, app: &App, area: Rect, title: &str) {
 
     lines.push(Line::from(Span::styled(
         "  Tab/Arrows: navigate | Enter: save | Esc: cancel",
+        styles::help_text_style(),
+    )));
+
+    let paragraph = Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(styles::border_focused_style())
+            .style(Style::default().bg(styles::bg()).fg(styles::fg())),
+    );
+    f.render_widget(paragraph, popup_area);
+}
+
+fn draw_file_transfer_overlay(f: &mut Frame, app: &App, area: Rect) {
+    let host_name = app.scp_target.as_deref().unwrap_or("???");
+
+    let popup_width = 60u16.min(area.width.saturating_sub(4));
+    let popup_height = 13u16.min(area.height.saturating_sub(4));
+    let x = (area.width.saturating_sub(popup_width)) / 2;
+    let y = (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect::new(x, y, popup_width, popup_height);
+
+    f.render_widget(Clear, popup_area);
+
+    // Direction toggle
+    let (upload_style, download_style) = if app.scp_upload {
+        (
+            Style::default().fg(styles::bg()).bg(styles::primary()).add_modifier(Modifier::BOLD),
+            Style::default().fg(styles::muted()),
+        )
+    } else {
+        (
+            Style::default().fg(styles::muted()),
+            Style::default().fg(styles::bg()).bg(styles::primary()).add_modifier(Modifier::BOLD),
+        )
+    };
+
+    let direction_focused = app.scp_focused == 0;
+    let local_focused = app.scp_focused == 1;
+    let remote_focused = app.scp_focused == 2;
+
+    let focus_indicator = |focused: bool| -> &'static str {
+        if focused { "> " } else { "  " }
+    };
+
+    let field_label_style = |focused: bool| -> Style {
+        if focused {
+            Style::default().fg(styles::primary()).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(styles::muted())
+        }
+    };
+
+    let local_cursor = if local_focused { "_" } else { "" };
+    let remote_cursor = if remote_focused { "_" } else { "" };
+
+    let mut lines = vec![
+        Line::from(Span::styled(
+            " FILE TRANSFER (SCP) ",
+            Style::default()
+                .fg(styles::bg())
+                .bg(styles::primary())
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  Host:       ", Style::default().fg(styles::muted())),
+            Span::styled(host_name, Style::default().fg(styles::fg()).add_modifier(Modifier::BOLD)),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(focus_indicator(direction_focused), Style::default().fg(styles::primary())),
+            Span::styled("  Direction:  ", field_label_style(direction_focused)),
+            Span::styled(" Upload ", upload_style),
+            Span::raw("  "),
+            Span::styled(" Download ", download_style),
+            if direction_focused {
+                Span::styled("  \u{2190}/\u{2192} to toggle", Style::default().fg(styles::muted()))
+            } else {
+                Span::raw("")
+            },
+        ]),
+        Line::from(vec![
+            Span::styled(focus_indicator(local_focused), Style::default().fg(styles::primary())),
+            Span::styled("  Local path: ", field_label_style(local_focused)),
+            Span::styled(
+                format!("{}{}", app.scp_local_path, local_cursor),
+                Style::default().fg(styles::fg()),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled(focus_indicator(remote_focused), Style::default().fg(styles::primary())),
+            Span::styled("  Remote path:", field_label_style(remote_focused)),
+            Span::styled(
+                format!(" {}{}", app.scp_remote_path, remote_cursor),
+                Style::default().fg(styles::fg()),
+            ),
+        ]),
+        Line::from(""),
+    ];
+
+    if let Some(ref err) = app.scp_error {
+        lines.push(Line::from(Span::styled(
+            format!("  Error: {err}"),
+            Style::default().fg(styles::red()),
+        )));
+        lines.push(Line::from(""));
+    }
+
+    lines.push(Line::from(Span::styled(
+        "  Tab: navigate | Enter: transfer | Esc: cancel",
         styles::help_text_style(),
     )));
 

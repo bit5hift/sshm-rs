@@ -376,7 +376,6 @@ fn key_event_to_bytes(key: &crossterm::event::KeyEvent) -> Vec<u8> {
 }
 
 /// Connect to an SSH host with port forwarding arguments.
-/// Always uses the system `ssh` command since port forwarding requires it.
 pub fn connect_ssh_with_port_forward(
     host: &str,
     pf_arg: &str,
@@ -388,7 +387,6 @@ pub fn connect_ssh_with_port_forward(
         cmd.args(["-F", cfg]);
     }
 
-    // Add port forwarding arguments (split by spaces: e.g. "-L 8080:localhost:80")
     for part in pf_arg.split_whitespace() {
         cmd.arg(part);
     }
@@ -405,8 +403,7 @@ pub fn connect_ssh_with_port_forward(
     std::process::exit(status.code().unwrap_or(1));
 }
 
-/// Run a command on multiple SSH hosts sequentially, printing output prefixed with hostname.
-/// After all hosts have been executed, waits for the user to press Enter before returning.
+/// Run a command on multiple SSH hosts sequentially.
 pub fn broadcast_command(hosts: &[&str], command: &str, config_file: Option<&str>) -> Result<()> {
     use std::io::Write;
 
@@ -426,7 +423,6 @@ pub fn broadcast_command(hosts: &[&str], command: &str, config_file: Option<&str
             cmd.args(["-F", cfg]);
         }
 
-        // Use BatchMode and connect timeout to avoid hanging on interactive prompts
         cmd.args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=10"]);
         cmd.arg(host);
         cmd.arg(command);
@@ -458,6 +454,54 @@ pub fn broadcast_command(hosts: &[&str], command: &str, config_file: Option<&str
     std::io::stdin().read_line(&mut input)?;
 
     Ok(())
+}
+
+/// Launch an interactive SFTP session to the given host.
+pub fn launch_sftp(host: &str, config_file: Option<&str>) -> Result<()> {
+    let mut cmd = std::process::Command::new("sftp");
+
+    if let Some(cfg) = config_file {
+        cmd.args(["-F", cfg]);
+    }
+
+    cmd.arg(host);
+
+    cmd.stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit());
+
+    let status = cmd.status()?;
+    std::process::exit(status.code().unwrap_or(1));
+}
+
+/// Launch an SCP file transfer.
+pub fn launch_scp(
+    host: &str,
+    local_path: &str,
+    remote_path: &str,
+    upload: bool,
+    config_file: Option<&str>,
+) -> Result<()> {
+    let mut cmd = std::process::Command::new("scp");
+
+    if let Some(cfg) = config_file {
+        cmd.args(["-F", cfg]);
+    }
+
+    if upload {
+        cmd.arg(local_path);
+        cmd.arg(format!("{}:{}", host, remote_path));
+    } else {
+        cmd.arg(format!("{}:{}", host, remote_path));
+        cmd.arg(local_path);
+    }
+
+    cmd.stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit());
+
+    let status = cmd.status()?;
+    std::process::exit(status.code().unwrap_or(1));
 }
 
 /// Fallback: connect using the system `ssh` command (for key-based auth).

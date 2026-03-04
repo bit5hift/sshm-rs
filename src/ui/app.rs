@@ -19,6 +19,7 @@ pub enum ViewMode {
     PortForward,
     Broadcast,
     Snippets,
+    FileTransfer,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -207,6 +208,14 @@ pub struct App {
     pub snippet_fields: [String; 3], // name, command, description
     pub snippet_focused: usize,
     pub snippet_error: Option<String>,
+
+    // SCP/SFTP file transfer state
+    pub scp_local_path: String,
+    pub scp_remote_path: String,
+    pub scp_upload: bool,
+    pub scp_focused: usize,
+    pub scp_error: Option<String>,
+    pub scp_target: Option<String>,
 }
 
 impl App {
@@ -269,6 +278,12 @@ impl App {
             snippet_fields: Default::default(),
             snippet_focused: 0,
             snippet_error: None,
+            scp_local_path: String::new(),
+            scp_remote_path: String::new(),
+            scp_upload: true,
+            scp_focused: 0,
+            scp_error: None,
+            scp_target: None,
         };
         app.hosts = app.sort_hosts(&hosts);
         app.filtered_hosts = app.hosts.clone();

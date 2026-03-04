@@ -48,6 +48,7 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         ViewMode::PortForward => handle_port_forward_key(app, key),
         ViewMode::Broadcast => handle_broadcast_key(app, key),
         ViewMode::Snippets => handle_snippets_key(app, key),
+        ViewMode::FileTransfer => handle_file_transfer_key(app, key),
     }
 }
 
@@ -311,6 +312,23 @@ fn handle_table_key(app: &mut App, key: KeyEvent) {
             app.snippet_focused = 0;
             app.snippet_error = None;
             app.view_mode = ViewMode::Snippets;
+        }
+        KeyCode::Char('x') => {
+            if let Some(name) = app.selected_host().map(|h| h.name.clone()) {
+                app.connect_host = Some(format!("__sftp__:{}", name));
+                app.should_quit = true;
+            }
+        }
+        KeyCode::Char('X') => {
+            if let Some(name) = app.selected_host().map(|h| h.name.clone()) {
+                app.scp_target = Some(name);
+                app.scp_local_path = String::new();
+                app.scp_remote_path = String::new();
+                app.scp_upload = true;
+                app.scp_focused = 0;
+                app.scp_error = None;
+                app.view_mode = ViewMode::FileTransfer;
+            }
         }
         KeyCode::Char('e') => {
             if let Some(host) = app.selected_host().cloned() {
@@ -746,6 +764,73 @@ fn handle_edit_key(app: &mut App, key: KeyEvent) {
             app.edit_target = None;
             app.show_toast("Host updated");
             app.view_mode = ViewMode::List;
+        }
+        _ => {}
+    }
+}
+
+fn handle_file_transfer_key(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => {
+            app.scp_target = None;
+            app.scp_error = None;
+            app.view_mode = ViewMode::List;
+        }
+        KeyCode::Tab => {
+            // Cycle forward: direction(0) -> local(1) -> remote(2) -> direction(0)
+            app.scp_focused = (app.scp_focused + 1) % 3;
+        }
+        KeyCode::BackTab => {
+            // Cycle backward
+            app.scp_focused = if app.scp_focused == 0 { 2 } else { app.scp_focused - 1 };
+        }
+        KeyCode::Left | KeyCode::Right => {
+            // Toggle upload/download only when on direction field
+            if app.scp_focused == 0 {
+                app.scp_upload = !app.scp_upload;
+                app.scp_error = None;
+            }
+        }
+        KeyCode::Backspace => {
+            match app.scp_focused {
+                1 => { app.scp_local_path.pop(); }
+                2 => { app.scp_remote_path.pop(); }
+                _ => {}
+            }
+            app.scp_error = None;
+        }
+        KeyCode::Char(c) => {
+            match app.scp_focused {
+                1 => { app.scp_local_path.push(c); }
+                2 => { app.scp_remote_path.push(c); }
+                _ => {}
+            }
+            app.scp_error = None;
+        }
+        KeyCode::Enter => {
+            let host = match app.scp_target.clone() {
+                Some(h) => h,
+                None => {
+                    app.scp_error = Some("No host selected".to_string());
+                    return;
+                }
+            };
+            let local = app.scp_local_path.trim().to_string();
+            let remote = app.scp_remote_path.trim().to_string();
+
+            if local.is_empty() {
+                app.scp_error = Some("Local path is required".to_string());
+                return;
+            }
+            if remote.is_empty() {
+                app.scp_error = Some("Remote path is required".to_string());
+                return;
+            }
+
+            // Signal scp launch via connect_host sentinel
+            let direction = if app.scp_upload { "upload" } else { "download" };
+            app.connect_host = Some(format!("__scp__:{}:{}:{}:{}", host, direction, local, remote));
+            app.should_quit = true;
         }
         _ => {}
     }
