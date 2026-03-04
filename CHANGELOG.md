@@ -81,6 +81,41 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   - Graceful fallback to system `ssh` when ssh2 negotiation fails
   - Password management overlay (`p` key): set, update, or delete passwords
 
+- **Config validation** (`sshm-rs validate` CLI + TUI warnings)
+  - Detects duplicate host names, empty hostnames, invalid ports, missing identity files
+  - CLI command: `sshm-rs validate [-c config_file]`
+  - TUI: warning count indicator in status bar, per-host warnings in Info overlay
+  - 6 unit tests for validation rules
+
+- **Configurable color themes** (`T` key in TUI)
+  - 3 built-in presets: Tokyo Night (default), High Contrast, Light
+  - Custom themes via `~/.config/sshm-rs/theme.json`
+  - Live theme cycling with `T` key
+  - OnceLock + RwLock pattern for thread-safe dynamic theme switching
+
+- **Multi-select and batch operations** (`Space` / `Ctrl+a`)
+  - Space to toggle individual host selection
+  - Ctrl+a to select all visible hosts
+  - Batch delete with confirmation dialog
+  - Selected hosts highlighted with cyan checkmark
+  - Esc to clear selection
+
+- **Command broadcast** (`b` key with active selection)
+  - Execute a command on all selected hosts sequentially
+  - Output prefixed by hostname separator
+  - Interactive overlay to type and confirm command
+
+- **Command snippets** (`S` key in TUI)
+  - Save and manage frequently-used SSH commands
+  - Add/delete/execute snippets on selected host
+  - Persisted to `~/.config/sshm-rs/snippets.json`
+  - Snippet list with name, command preview, and description
+
+- **SFTP/SCP file transfer** (`x` / `X` keys in TUI)
+  - `x`: Quick SFTP interactive session to selected host
+  - `X`: SCP form with upload/download toggle, local/remote paths
+  - Uses system sftp/scp commands with SSH config support
+
 - **UI polish**
   - Rounded borders on all blocks and overlays
   - Unicode status indicators (● ○ ◌)
