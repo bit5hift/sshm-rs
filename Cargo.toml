@@ -1,6 +1,6 @@
 [package]
 name = "sshm-rs"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 edition = "2021"
 description = "A beautiful TUI SSH connection manager, inspired by https://github.com/Gu1llaum-3/sshm"
 license = "MIT"
