@@ -1,7 +1,9 @@
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use std::time::{Duration, Instant};
 
+use crate::theme::Theme;
 use crate::ui::app::{AddField, App, ViewMode};
+use crate::ui::styles;
 
 /// Poll for crossterm events, returning true if the terminal was resized.
 pub fn poll_event(app: &mut App) -> anyhow::Result<bool> {
@@ -262,6 +264,14 @@ fn handle_table_key(app: &mut App, key: KeyEvent) {
             if !app.show_sidebar {
                 app.sidebar_focused = false;
             }
+        }
+        KeyCode::Char('T') => {
+            let themes = Theme::builtin_themes();
+            app.theme_index = (app.theme_index + 1) % themes.len();
+            let new_theme = themes[app.theme_index].clone();
+            let name = new_theme.name.clone();
+            styles::set_theme(new_theme);
+            app.show_toast(&format!("Theme: {name}"));
         }
         KeyCode::Left => {
             if app.show_sidebar {

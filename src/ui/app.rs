@@ -164,16 +164,14 @@ pub struct App {
     pub favorites: FavoritesManager,
 
     // Port forwarding form state
-    pub pf_forward_type: usize,  // 0=local, 1=remote, 2=dynamic
+    pub pf_forward_type: usize,
     pub pf_local_port: String,
     pub pf_remote_host: String,
     pub pf_remote_port: String,
     pub pf_bind_address: String,
-    pub pf_focused: usize,       // which field is focused (0-4)
-    pub pf_target: Option<String>, // host name
+    pub pf_focused: usize,
+    pub pf_target: Option<String>,
     pub pf_error: Option<String>,
-
-    // Port forwarding args to pass to ssh after TUI exits
     pub port_forward_args: Option<String>,
 
     // Tag sidebar
@@ -185,6 +183,9 @@ pub struct App {
 
     // Config validation warnings
     pub config_warnings: Vec<String>,
+
+    // Theme cycling
+    pub theme_index: usize,
 }
 
 impl App {
@@ -235,6 +236,7 @@ impl App {
             sidebar_active_tag: None,
             sidebar_focused: false,
             config_warnings,
+            theme_index: 0,
         };
         app.hosts = app.sort_hosts(&hosts);
         app.filtered_hosts = app.hosts.clone();

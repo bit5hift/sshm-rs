@@ -18,8 +18,8 @@ const ASCII_TITLE: &str = r#"
 pub fn draw(f: &mut Frame, app: &App) {
     let area = f.area();
 
-    // Clear background with Tokyo Night bg
-    let bg_block = Block::default().style(Style::default().bg(styles::BG));
+    // Clear background with theme bg
+    let bg_block = Block::default().style(Style::default().bg(styles::bg()));
     f.render_widget(bg_block, area);
 
     // Responsive layout: compact title when terminal is small
@@ -154,13 +154,13 @@ fn draw_search_bar(f: &mut Frame, app: &App, area: Rect) {
     let display = format!("{content}{cursor_suffix}");
 
     let search = Paragraph::new(display)
-        .style(Style::default().fg(styles::FG).bg(styles::BG))
+        .style(Style::default().fg(styles::fg()).bg(styles::bg()))
         .block(
             Block::default()
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
                 .border_style(border_style)
-                .style(Style::default().bg(styles::BG)),
+                .style(Style::default().bg(styles::bg())),
         );
     f.render_widget(search, area);
 }
@@ -257,10 +257,10 @@ fn draw_table(f: &mut Frame, app: &App, area: Rect) {
             let cells = vec![
                 Span::styled(indicator.to_string(), status_style),
                 Span::styled(name_display, name_style),
-                Span::styled(host.user.clone(), Style::default().fg(styles::FG)),
-                Span::styled(host.hostname.clone(), Style::default().fg(styles::CYAN)),
-                Span::styled(port_display, Style::default().fg(styles::FG)),
-                Span::styled(tags_str, Style::default().fg(styles::PURPLE)),
+                Span::styled(host.user.clone(), Style::default().fg(styles::fg())),
+                Span::styled(host.hostname.clone(), Style::default().fg(styles::cyan())),
+                Span::styled(port_display, Style::default().fg(styles::fg())),
+                Span::styled(tags_str, Style::default().fg(styles::purple())),
             ];
 
             let row = Row::new(cells.into_iter().map(|s| Line::from(s)));
@@ -288,7 +288,7 @@ fn draw_table(f: &mut Frame, app: &App, area: Rect) {
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
                 .border_style(border_style)
-                .style(Style::default().bg(styles::BG)),
+                .style(Style::default().bg(styles::bg())),
         )
         .row_highlight_style(styles::table_selected_style());
 
@@ -316,7 +316,7 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
 
     let (left_text, left_style) = if show_toast {
         let msg = format!(" {} ", app.toast_message.as_deref().unwrap_or(""));
-        (msg, Style::default().fg(styles::GREEN))
+        (msg, Style::default().fg(styles::green()))
     } else if app.search_mode {
         (
             " Type to filter | Enter: validate | Tab: switch | Esc: close search".to_string(),
@@ -360,14 +360,14 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
         spans.push(Span::styled(
             warn_text,
             Style::default()
-                .fg(styles::YELLOW)
+                .fg(styles::yellow())
                 .add_modifier(Modifier::BOLD),
         ));
     }
-    spans.push(Span::styled(right, Style::default().fg(styles::PRIMARY)));
+    spans.push(Span::styled(right, Style::default().fg(styles::primary())));
 
     let bar = Line::from(spans);
-    let paragraph = Paragraph::new(bar).style(Style::default().bg(styles::BG));
+    let paragraph = Paragraph::new(bar).style(Style::default().bg(styles::bg()));
     f.render_widget(paragraph, area);
 }
 
@@ -407,8 +407,8 @@ fn draw_delete_confirm(f: &mut Frame, app: &App, area: Rect) {
             Block::default()
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(styles::RED))
-                .style(Style::default().bg(styles::BG).fg(styles::FG)),
+                .border_style(Style::default().fg(styles::red()))
+                .style(Style::default().bg(styles::bg()).fg(styles::fg())),
         );
     f.render_widget(paragraph, popup_area);
 }
@@ -433,7 +433,7 @@ fn draw_info_overlay(f: &mut Frame, app: &App, area: Rect) {
         Line::from(Span::styled(
             format!(" Host: {} ", host.name),
             Style::default()
-                .fg(styles::PRIMARY)
+                .fg(styles::primary())
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
@@ -441,37 +441,37 @@ fn draw_info_overlay(f: &mut Frame, app: &App, area: Rect) {
 
     // Always show hostname
     lines.push(Line::from(vec![
-        Span::styled("  Hostname:  ", Style::default().fg(styles::MUTED)),
-        Span::styled(&host.hostname, Style::default().fg(styles::FG)),
+        Span::styled("  Hostname:  ", Style::default().fg(styles::muted())),
+        Span::styled(&host.hostname, Style::default().fg(styles::fg())),
     ]));
 
     // Only show user if non-empty
     if !host.user.is_empty() {
         lines.push(Line::from(vec![
-            Span::styled("  User:      ", Style::default().fg(styles::MUTED)),
-            Span::styled(&host.user, Style::default().fg(styles::FG)),
+            Span::styled("  User:      ", Style::default().fg(styles::muted())),
+            Span::styled(&host.user, Style::default().fg(styles::fg())),
         ]));
     }
 
     // Always show port (defaults to 22)
     lines.push(Line::from(vec![
-        Span::styled("  Port:      ", Style::default().fg(styles::MUTED)),
-        Span::styled(port_display, Style::default().fg(styles::FG)),
+        Span::styled("  Port:      ", Style::default().fg(styles::muted())),
+        Span::styled(port_display, Style::default().fg(styles::fg())),
     ]));
 
     // Only show identity if non-empty
     if !host.identity.is_empty() {
         lines.push(Line::from(vec![
-            Span::styled("  Identity:  ", Style::default().fg(styles::MUTED)),
-            Span::styled(&host.identity, Style::default().fg(styles::FG)),
+            Span::styled("  Identity:  ", Style::default().fg(styles::muted())),
+            Span::styled(&host.identity, Style::default().fg(styles::fg())),
         ]));
     }
 
     // Only show proxy_jump if non-empty
     if !host.proxy_jump.is_empty() {
         lines.push(Line::from(vec![
-            Span::styled("  ProxyJump: ", Style::default().fg(styles::MUTED)),
-            Span::styled(&host.proxy_jump, Style::default().fg(styles::FG)),
+            Span::styled("  ProxyJump: ", Style::default().fg(styles::muted())),
+            Span::styled(&host.proxy_jump, Style::default().fg(styles::fg())),
         ]));
     }
 
@@ -479,27 +479,27 @@ fn draw_info_overlay(f: &mut Frame, app: &App, area: Rect) {
     if !host.tags.is_empty() {
         let tags_str = host.tags.iter().map(|t| format!("#{t}")).collect::<Vec<_>>().join(" ");
         lines.push(Line::from(vec![
-            Span::styled("  Tags:      ", Style::default().fg(styles::MUTED)),
-            Span::styled(tags_str, Style::default().fg(styles::PURPLE)),
+            Span::styled("  Tags:      ", Style::default().fg(styles::muted())),
+            Span::styled(tags_str, Style::default().fg(styles::purple())),
         ]));
     }
 
     lines.push(Line::from(vec![
-        Span::styled("  Password:  ", Style::default().fg(styles::MUTED)),
+        Span::styled("  Password:  ", Style::default().fg(styles::muted())),
         Span::styled(
             if crate::credentials::has_password(&host.name) { "Saved" } else { "None" },
-            Style::default().fg(if crate::credentials::has_password(&host.name) { styles::GREEN } else { styles::MUTED }),
+            Style::default().fg(if crate::credentials::has_password(&host.name) { styles::green() } else { styles::muted() }),
         ),
     ]));
 
     lines.push(Line::from(vec![
-        Span::styled("  Status:    ", Style::default().fg(styles::MUTED)),
-        Span::styled(indicator, Style::default().fg(styles::FG)),
+        Span::styled("  Status:    ", Style::default().fg(styles::muted())),
+        Span::styled(indicator, Style::default().fg(styles::fg())),
     ]));
 
     lines.push(Line::from(vec![
-        Span::styled("  Last used: ", Style::default().fg(styles::MUTED)),
-        Span::styled(last_login_display, Style::default().fg(styles::FG)),
+        Span::styled("  Last used: ", Style::default().fg(styles::muted())),
+        Span::styled(last_login_display, Style::default().fg(styles::fg())),
     ]));
 
     // Collect warnings that concern this host
@@ -548,7 +548,7 @@ fn draw_info_overlay(f: &mut Frame, app: &App, area: Rect) {
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(styles::border_focused_style())
-            .style(Style::default().bg(styles::BG).fg(styles::FG)),
+            .style(Style::default().bg(styles::bg()).fg(styles::fg())),
     );
     f.render_widget(paragraph, popup_area);
 }
@@ -568,8 +568,8 @@ fn draw_host_form(f: &mut Frame, app: &App, area: Rect, title: &str) {
         Line::from(Span::styled(
             title,
             Style::default()
-                .fg(styles::BG)
-                .bg(styles::PRIMARY)
+                .fg(styles::bg())
+                .bg(styles::primary())
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
@@ -590,12 +590,12 @@ fn draw_host_form(f: &mut Frame, app: &App, area: Rect, title: &str) {
         let cursor = if is_focused { "_" } else { "" };
 
         let label_style = if is_focused {
-            Style::default().fg(styles::PRIMARY).add_modifier(Modifier::BOLD)
+            Style::default().fg(styles::primary()).add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(styles::MUTED)
+            Style::default().fg(styles::muted())
         };
 
-        let value_style = Style::default().fg(styles::FG);
+        let value_style = Style::default().fg(styles::fg());
         let indicator = if is_focused { "> " } else { "  " };
 
         // Show lock icon for password field if it has a value
@@ -606,10 +606,10 @@ fn draw_host_form(f: &mut Frame, app: &App, area: Rect, title: &str) {
         };
 
         lines.push(Line::from(vec![
-            Span::styled(indicator, Style::default().fg(styles::PRIMARY)),
+            Span::styled(indicator, Style::default().fg(styles::primary())),
             Span::styled(label, label_style),
             Span::styled(format!("{display_value}{cursor}"), value_style),
-            Span::styled(suffix, Style::default().fg(styles::GREEN)),
+            Span::styled(suffix, Style::default().fg(styles::green())),
         ]));
     }
 
@@ -618,7 +618,7 @@ fn draw_host_form(f: &mut Frame, app: &App, area: Rect, title: &str) {
     if let Some(ref err) = app.add_error {
         lines.push(Line::from(Span::styled(
             format!("  Error: {err}"),
-            Style::default().fg(styles::RED),
+            Style::default().fg(styles::red()),
         )));
         lines.push(Line::from(""));
     }
@@ -633,7 +633,7 @@ fn draw_host_form(f: &mut Frame, app: &App, area: Rect, title: &str) {
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(styles::border_focused_style())
-            .style(Style::default().bg(styles::BG).fg(styles::FG)),
+            .style(Style::default().bg(styles::bg()).fg(styles::fg())),
     );
     f.render_widget(paragraph, popup_area);
 }
@@ -660,28 +660,28 @@ fn draw_password_overlay(f: &mut Frame, app: &App, area: Rect) {
         Line::from(Span::styled(
             " SET PASSWORD ",
             Style::default()
-                .fg(styles::BG)
-                .bg(styles::PRIMARY)
+                .fg(styles::bg())
+                .bg(styles::primary())
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
         Line::from(vec![
-            Span::styled("  Host: ", Style::default().fg(styles::MUTED)),
-            Span::styled(host_name, Style::default().fg(styles::FG).add_modifier(Modifier::BOLD)),
+            Span::styled("  Host: ", Style::default().fg(styles::muted())),
+            Span::styled(host_name, Style::default().fg(styles::fg()).add_modifier(Modifier::BOLD)),
         ]),
     ];
 
     if has_existing {
         lines.push(Line::from(vec![
-            Span::styled("  Password: ", Style::default().fg(styles::MUTED)),
-            Span::styled("[Saved]", Style::default().fg(styles::GREEN)),
-            Span::styled(" — Enter new or Del to remove", Style::default().fg(styles::MUTED)),
+            Span::styled("  Password: ", Style::default().fg(styles::muted())),
+            Span::styled("[Saved]", Style::default().fg(styles::green())),
+            Span::styled(" — Enter new or Del to remove", Style::default().fg(styles::muted())),
         ]));
     }
 
     lines.push(Line::from(vec![
-        Span::styled("  New:   ", Style::default().fg(styles::MUTED)),
-        Span::styled(format!("{masked_input}_"), Style::default().fg(styles::FG)),
+        Span::styled("  New:   ", Style::default().fg(styles::muted())),
+        Span::styled(format!("{masked_input}_"), Style::default().fg(styles::fg())),
     ]));
 
     lines.push(Line::from(""));
@@ -698,7 +698,7 @@ fn draw_password_overlay(f: &mut Frame, app: &App, area: Rect) {
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(styles::border_focused_style())
-            .style(Style::default().bg(styles::BG).fg(styles::FG)),
+            .style(Style::default().bg(styles::bg()).fg(styles::fg())),
     );
     f.render_widget(paragraph, popup_area);
 }

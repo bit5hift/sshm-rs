@@ -15,6 +15,7 @@ use std::io;
 
 use crate::config::{default_ssh_config_path, parse_ssh_config};
 use crate::history::HistoryManager;
+use crate::theme::Theme;
 
 use app::{App, ViewMode};
 
@@ -25,6 +26,9 @@ pub fn run_tui() -> Result<()> {
 
     // Load history
     let history = HistoryManager::load().ok();
+
+    // Load and initialise the active theme (reads theme.json if present)
+    styles::init_theme(Theme::load());
 
     // Create app state
     let mut app = App::new(hosts, history, config_path);

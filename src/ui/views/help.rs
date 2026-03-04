@@ -23,7 +23,7 @@ pub fn draw(f: &mut Frame, area: Rect) {
         Line::from(Span::styled(
             "sshm-rs - Keybindings",
             Style::default()
-                .fg(styles::PRIMARY)
+                .fg(styles::primary())
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
@@ -114,6 +114,10 @@ pub fn draw(f: &mut Frame, area: Rect) {
             Span::styled("  r        ", key_style),
             Span::styled("Refresh connectivity status", desc_style),
         ]),
+        Line::from(vec![
+            Span::styled("  T        ", key_style),
+            Span::styled("Cycle color theme", desc_style),
+        ]),
         Line::from(""),
         // System
         Line::from(Span::styled("System", section_style)),
@@ -140,7 +144,7 @@ pub fn draw(f: &mut Frame, area: Rect) {
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
                 .border_style(styles::border_focused_style())
-                .style(Style::default().bg(styles::BG).fg(styles::FG)),
+                .style(Style::default().bg(styles::bg()).fg(styles::fg())),
         );
     f.render_widget(paragraph, popup_area);
 }
