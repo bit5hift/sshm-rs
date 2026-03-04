@@ -1,7 +1,7 @@
 use crate::config::SshHost;
-use crate::connectivity::HostStatus;
+use crate::connectivity::{HostStatus, PingManager};
 use crate::history::HistoryManager;
-use std::collections::HashMap;
+use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ViewMode {
@@ -120,7 +120,7 @@ pub struct App {
     pub height: u16,
 
     // Connectivity status
-    pub host_status: HashMap<String, HostStatus>,
+    pub ping_manager: PingManager,
 
     // History
     pub history: Option<HistoryManager>,
@@ -147,6 +147,7 @@ pub struct App {
 
 impl App {
     pub fn new(hosts: Vec<SshHost>, history: Option<HistoryManager>, config_path: std::path::PathBuf) -> Self {
+        let ping_manager = PingManager::new(Duration::from_secs(5));
         let mut app = App {
             hosts: Vec::new(),
             filtered_hosts: Vec::new(),
@@ -158,7 +159,7 @@ impl App {
             sort_mode: SortMode::ByName,
             width: 80,
             height: 24,
-            host_status: HashMap::new(),
+            ping_manager,
             history,
             connect_host: None,
             should_quit: false,
@@ -172,7 +173,30 @@ impl App {
         };
         app.hosts = app.sort_hosts(&hosts);
         app.filtered_hosts = app.hosts.clone();
+        app.start_ping();
         app
+    }
+
+    /// Build the host tuples and start pinging all hosts via the PingManager.
+    pub fn start_ping(&self) {
+        let hosts_data: Vec<(String, String, String)> = self
+            .hosts
+            .iter()
+            .map(|h| {
+                let hostname = if h.hostname.is_empty() {
+                    h.name.clone()
+                } else {
+                    h.hostname.clone()
+                };
+                let port = if h.port.is_empty() {
+                    "22".to_string()
+                } else {
+                    h.port.clone()
+                };
+                (h.name.clone(), hostname, port)
+            })
+            .collect();
+        let _ = self.ping_manager.start_ping_all(hosts_data);
     }
 
     pub fn reset_add_form(&mut self) {
@@ -284,11 +308,8 @@ impl App {
         self.filtered_hosts.get(self.selected)
     }
 
-    pub fn get_status_indicator(&self, host_name: &str) -> (&str, &HostStatus) {
-        let status = self
-            .host_status
-            .get(host_name)
-            .unwrap_or(&HostStatus::Unknown);
+    pub fn get_status_indicator(&self, host_name: &str) -> (&'static str, HostStatus) {
+        let status = self.ping_manager.get_status(host_name);
         let indicator = match status {
             HostStatus::Unknown => "?",
             HostStatus::Connecting => "~",

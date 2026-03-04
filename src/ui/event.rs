@@ -136,6 +136,10 @@ fn handle_table_key(app: &mut App, key: KeyEvent) {
                 app.view_mode = ViewMode::Password;
             }
         }
+        KeyCode::Char('r') => {
+            // Refresh connectivity status for all hosts
+            app.start_ping();
+        }
         KeyCode::Char('e') => {
             // TODO: edit form
         }
