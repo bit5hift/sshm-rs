@@ -38,3 +38,14 @@ pub fn delete_password(host_name: &str) -> Result<()> {
 pub fn has_password(host_name: &str) -> bool {
     get_password(host_name).is_some()
 }
+
+/// Debug version of get_password that returns the actual error.
+pub fn get_password_debug(host_name: &str) -> Result<Option<String>> {
+    let entry = keyring::Entry::new(SERVICE_NAME, host_name)
+        .context("Failed to create keyring entry")?;
+    match entry.get_password() {
+        Ok(pw) => Ok(Some(pw)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(anyhow::anyhow!("Keyring error: {e}")),
+    }
+}
