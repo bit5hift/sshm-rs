@@ -5,6 +5,57 @@ All notable changes to this project will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Edit Host form** (`e` key in TUI)
+  - Pre-populated fields from existing host data
+  - Password credential migration on host rename
+  - Shared form renderer with Add form
+
+- **Live connectivity status**
+  - PingManager wired into TUI (was built but unused)
+  - Hosts show real-time TCP connectivity: Online (green ●), Offline (red ●), Connecting (◌)
+  - `r` key to refresh all host statuses
+
+- **Fuzzy search** (nucleo-matcher)
+  - Replaces substring matching with fuzzy scoring
+  - Results ranked by match quality
+  - Prefix filters: `tag:`, `user:`, `host:`
+
+- **Mouse support**
+  - Click to select host
+  - Scroll wheel navigation
+  - Double-click to connect
+  - Visual scrollbar (▲/▼) when list overflows
+
+- **Toast/flash messages**
+  - Feedback after operations: "Host added", "Host deleted", "Password saved", etc.
+  - Auto-dismiss after 3 seconds
+
+- **Shell completions**
+  - `sshm-rs completions bash/zsh/fish/powershell`
+
+- **SSH password auto-connect** via ssh2 crate
+  - Direct SSH connection using saved credentials (no SSH_ASKPASS)
+  - Graceful fallback to system `ssh` when ssh2 negotiation fails
+  - Password management overlay (`p` key): set, update, or delete passwords
+
+- **UI polish**
+  - Rounded borders on all blocks and overlays
+  - Unicode status indicators (● ○ ◌)
+  - Extended Tokyo Night palette: cyan (hostnames), purple (tags), orange
+  - PageUp/PageDown/G navigation
+  - Improved MUTED color contrast (WCAG AA compliant)
+  - Empty fields hidden in Info overlay
+  - `Esc` no longer quits app (only `q` quits)
+
+### Fixed
+
+- Keyring credentials not persisting (missing `windows-native` feature)
+- Name with spaces creating multiple SSH host aliases (validation added)
+
 ## [0.1.0-beta.1] - 2026-03-04
 
 First beta release. Rust rewrite inspired by [sshm (Go)](https://github.com/Gu1llaum-3/sshm).
