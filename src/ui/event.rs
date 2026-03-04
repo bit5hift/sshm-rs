@@ -266,6 +266,10 @@ fn handle_add_key(app: &mut App, key: KeyEvent) {
                 app.add_error = Some("Name is required".to_string());
                 return;
             }
+            if name.contains(' ') {
+                app.add_error = Some("Name cannot contain spaces".to_string());
+                return;
+            }
             if hostname.is_empty() {
                 app.add_error = Some("Hostname is required".to_string());
                 return;
@@ -364,6 +368,10 @@ fn handle_edit_key(app: &mut App, key: KeyEvent) {
 
             if name.is_empty() {
                 app.add_error = Some("Name is required".to_string());
+                return;
+            }
+            if name.contains(' ') {
+                app.add_error = Some("Name cannot contain spaces".to_string());
                 return;
             }
             if hostname.is_empty() {
