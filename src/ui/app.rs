@@ -175,6 +175,13 @@ pub struct App {
 
     // Port forwarding args to pass to ssh after TUI exits
     pub port_forward_args: Option<String>,
+
+    // Tag sidebar
+    pub show_sidebar: bool,
+    pub sidebar_tags: Vec<String>,
+    pub sidebar_selected: usize,
+    pub sidebar_active_tag: Option<String>,
+    pub sidebar_focused: bool,
 }
 
 impl App {
@@ -218,9 +225,15 @@ impl App {
             pf_target: None,
             pf_error: None,
             port_forward_args: None,
+            show_sidebar: false,
+            sidebar_tags: Vec::new(),
+            sidebar_selected: 0,
+            sidebar_active_tag: None,
+            sidebar_focused: false,
         };
         app.hosts = app.sort_hosts(&hosts);
         app.filtered_hosts = app.hosts.clone();
+        app.sidebar_tags = app.build_tag_list();
         app.start_ping();
         app
     }
@@ -300,10 +313,30 @@ impl App {
         }
     }
 
+    pub fn build_tag_list(&self) -> Vec<String> {
+        let mut tags: Vec<String> = self
+            .hosts
+            .iter()
+            .flat_map(|h| h.tags.iter().cloned())
+            .collect::<std::collections::HashSet<String>>()
+            .into_iter()
+            .collect();
+        tags.sort();
+        tags
+    }
+
+    pub fn refresh_sidebar_tags(&mut self) {
+        self.sidebar_tags = self.build_tag_list();
+        if self.sidebar_selected >= self.sidebar_tags.len() + 1 {
+            self.sidebar_selected = self.sidebar_tags.len();
+        }
+    }
+
     pub fn reload_hosts(&mut self) {
         if let Ok(hosts) = crate::config::parse_ssh_config(&self.config_path) {
             self.hosts = self.sort_hosts(&hosts);
             self.apply_filter();
+            self.refresh_sidebar_tags();
         }
     }
 
@@ -402,6 +435,11 @@ impl App {
 
             self.filtered_hosts = scored.into_iter().map(|(host, _)| host).collect();
         }
+        // Apply sidebar tag filter
+        if let Some(ref tag) = self.sidebar_active_tag {
+            self.filtered_hosts.retain(|h| h.tags.iter().any(|t| t == tag));
+        }
+
         // Clamp selected
         if !self.filtered_hosts.is_empty() {
             if self.selected >= self.filtered_hosts.len() {

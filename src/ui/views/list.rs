@@ -26,22 +26,37 @@ pub fn draw(f: &mut Frame, app: &App) {
     let compact = area.height < 20;
     let title_height = if compact { 1 } else { 5 };
 
-    let chunks = Layout::vertical([
-        Constraint::Length(title_height), // Title (compact or ASCII art)
-        Constraint::Length(3),            // Search bar
-        Constraint::Min(3),              // Table
-        Constraint::Length(1),           // Status bar
-    ])
-    .split(area);
+    let draw_content = |f: &mut Frame, content_area: Rect| {
+        let chunks = Layout::vertical([
+            Constraint::Length(title_height),
+            Constraint::Length(3),
+            Constraint::Min(3),
+            Constraint::Length(1),
+        ])
+        .split(content_area);
 
-    if compact {
-        draw_compact_title(f, chunks[0]);
+        if compact {
+            draw_compact_title(f, chunks[0]);
+        } else {
+            draw_title(f, chunks[0]);
+        }
+        draw_search_bar(f, app, chunks[1]);
+        draw_table(f, app, chunks[2]);
+        draw_status_bar(f, app, chunks[3]);
+    };
+
+    if app.show_sidebar {
+        let main_chunks = Layout::horizontal([
+            Constraint::Length(20),
+            Constraint::Min(40),
+        ])
+        .split(area);
+
+        draw_sidebar(f, app, main_chunks[0]);
+        draw_content(f, main_chunks[1]);
     } else {
-        draw_title(f, chunks[0]);
+        draw_content(f, area);
     }
-    draw_search_bar(f, app, chunks[1]);
-    draw_table(f, app, chunks[2]);
-    draw_status_bar(f, app, chunks[3]);
 
     // Overlay views
     match app.view_mode {
@@ -71,6 +86,54 @@ fn draw_compact_title(f: &mut Frame, area: Rect) {
     )))
     .alignment(Alignment::Center);
     f.render_widget(title, area);
+}
+
+fn draw_sidebar(f: &mut Frame, app: &App, area: Rect) {
+    let border_style = if app.sidebar_focused {
+        styles::border_focused_style()
+    } else {
+        styles::border_unfocused_style()
+    };
+
+    let all_hosts_style = if app.sidebar_active_tag.is_none() {
+        Style::default().fg(styles::PRIMARY).add_modifier(Modifier::BOLD)
+    } else if app.sidebar_focused && app.sidebar_selected == 0 {
+        Style::default().fg(styles::FG).bg(styles::SELECTION_BG)
+    } else {
+        Style::default().fg(styles::FG)
+    };
+
+    let mut items: Vec<Line> = vec![
+        Line::from(Span::styled("  All Hosts", all_hosts_style)),
+    ];
+
+    for (i, tag) in app.sidebar_tags.iter().enumerate() {
+        let sidebar_index = i + 1;
+        let is_selected = app.sidebar_focused && sidebar_index == app.sidebar_selected;
+        let is_active = app.sidebar_active_tag.as_deref() == Some(tag);
+
+        let style = if is_active {
+            Style::default().fg(styles::PRIMARY).add_modifier(Modifier::BOLD)
+        } else if is_selected {
+            Style::default().fg(styles::FG).bg(styles::SELECTION_BG)
+        } else {
+            Style::default().fg(styles::PURPLE)
+        };
+
+        let prefix = if is_active { "\u{25cf} " } else { "  " };
+        items.push(Line::from(Span::styled(format!("{prefix}#{tag}"), style)));
+    }
+
+    let list = Paragraph::new(items)
+        .block(
+            Block::default()
+                .title(" Tags ")
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(border_style)
+                .style(Style::default().bg(styles::BG)),
+        );
+    f.render_widget(list, area);
 }
 
 fn draw_search_bar(f: &mut Frame, app: &App, area: Rect) {
@@ -103,7 +166,7 @@ fn draw_search_bar(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_table(f: &mut Frame, app: &App, area: Rect) {
-    let border_style = if !app.search_mode {
+    let border_style = if !app.search_mode && !app.sidebar_focused {
         styles::border_focused_style()
     } else {
         styles::border_unfocused_style()
@@ -261,7 +324,7 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
         )
     } else {
         (
-            " j/k: navigate | Enter: connect | /: search | s: sort | f: fav | F: fwd | y: copy | r: refresh | p: pwd | i: info | ?: help | q: quit".to_string(),
+            " j/k | Enter | / | s | f | F | y | t | r | p | i | ? | q".to_string(),
             styles::help_text_style(),
         )
     };
