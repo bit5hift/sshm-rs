@@ -5,7 +5,7 @@ use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph, Row, Scroll
 use ratatui::Frame;
 
 use crate::connectivity::HostStatus;
-use crate::ui::app::{App, SortMode, ViewMode};
+use crate::ui::app::{App, DisplayRow, SortMode, ViewMode};
 use crate::ui::styles;
 
 const ASCII_TITLE: &str = r#"
@@ -69,6 +69,8 @@ pub fn draw(f: &mut Frame, app: &App) {
         ViewMode::Broadcast => draw_broadcast_overlay(f, app, area),
         ViewMode::Snippets => draw_snippets_overlay(f, app, area),
         ViewMode::FileTransfer => draw_file_transfer_overlay(f, app, area),
+        ViewMode::GroupCreate => draw_group_create_overlay(f, app, area),
+        ViewMode::GroupPicker => draw_group_picker_overlay(f, app, area),
         _ => {}
     }
 }
@@ -215,74 +217,113 @@ fn draw_table(f: &mut Frame, app: &App, area: Rect) {
 
     // Build rows
     let visible = app.visible_rows();
-    let end = (app.table_offset + visible).min(app.filtered_hosts.len());
-    let visible_hosts = &app.filtered_hosts[app.table_offset..end];
+    let display_source: &[DisplayRow] = &app.display_rows;
+    let total_rows = if display_source.is_empty() {
+        app.filtered_hosts.len()
+    } else {
+        display_source.len()
+    };
+    let end = (app.table_offset + visible).min(total_rows);
+    let visible_range = app.table_offset..end;
 
-    let rows: Vec<Row> = visible_hosts
-        .iter()
-        .enumerate()
-        .map(|(i, host)| {
-            let abs_idx = app.table_offset + i;
+    let rows: Vec<Row> = visible_range
+        .map(|abs_idx| {
             let is_cursor = abs_idx == app.selected;
-            let is_multi_selected = app.selected_hosts.contains(&host.name);
 
-            let (indicator, status) = app.get_status_indicator(&host.name);
-            let status_style = match status {
-                HostStatus::Online(_) => styles::status_online_style(),
-                HostStatus::Offline(_) => styles::status_offline_style(),
-                HostStatus::Connecting => styles::status_connecting_style(),
-                HostStatus::Unknown => styles::status_unknown_style(),
-            };
+            // Determine what to render for this row
+            let display_row = display_source.get(abs_idx).cloned()
+                .unwrap_or(DisplayRow::HostRow(abs_idx));
 
-            let tags_str = if host.tags.is_empty() {
-                String::new()
-            } else {
-                host.tags.iter().map(|t| format!("#{t}")).collect::<Vec<_>>().join(" ")
-            };
+            match display_row {
+                DisplayRow::GroupHeader { name, host_count, collapsed } => {
+                    let collapse_icon = if collapsed { "\u{25b8}" } else { "\u{25be}" };
+                    let header_text = format!("{} {} ({})", collapse_icon, name, host_count);
+                    let header_style = if is_cursor {
+                        Style::default()
+                            .fg(styles::primary())
+                            .bg(styles::selection_bg())
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default()
+                            .fg(styles::primary())
+                            .add_modifier(Modifier::BOLD)
+                    };
+                    let cells = vec![
+                        Span::raw(""),
+                        Span::styled(header_text, header_style),
+                        Span::raw(""),
+                        Span::raw(""),
+                        Span::raw(""),
+                        Span::raw(""),
+                    ];
+                    Row::new(cells).style(Style::default().bg(styles::bg()))
+                }
+                DisplayRow::HostRow(host_idx) => {
+                    let host = match app.filtered_hosts.get(host_idx) {
+                        Some(h) => h,
+                        None => return Row::new(vec![Span::raw(""); 6]),
+                    };
 
-            let port_display = if host.port.is_empty() {
-                "22".to_string()
-            } else {
-                host.port.clone()
-            };
+                    let is_multi_selected = app.selected_hosts.contains(&host.name);
 
-            // Build status column: show checkmark for multi-selected, normal indicator otherwise
-            let status_span = if is_multi_selected {
-                Span::styled("\u{2713} ", Style::default().fg(styles::cyan()))
-            } else {
-                Span::styled(indicator.to_string(), status_style)
-            };
+                    let (indicator, status) = app.get_status_indicator(&host.name);
+                    let status_style = match status {
+                        HostStatus::Online(_) => styles::status_online_style(),
+                        HostStatus::Offline(_) => styles::status_offline_style(),
+                        HostStatus::Connecting => styles::status_connecting_style(),
+                        HostStatus::Unknown => styles::status_unknown_style(),
+                    };
 
-            let name_display = if app.favorites.is_favorite(&host.name) {
-                format!("\u{2605} {}", host.name)
-            } else {
-                host.name.clone()
-            };
+                    let tags_str = if host.tags.is_empty() {
+                        String::new()
+                    } else {
+                        host.tags.iter().map(|t| format!("#{t}")).collect::<Vec<_>>().join(" ")
+                    };
 
-            let name_style = if is_multi_selected {
-                Style::default().fg(styles::cyan())
-            } else if app.favorites.is_favorite(&host.name) {
-                Style::default().fg(styles::yellow())
-            } else {
-                Style::default().fg(styles::fg())
-            };
+                    let port_display = if host.port.is_empty() {
+                        "22".to_string()
+                    } else {
+                        host.port.clone()
+                    };
 
-            let cells = vec![
-                status_span,
-                Span::styled(name_display, name_style),
-                Span::styled(host.user.clone(), Style::default().fg(styles::fg())),
-                Span::styled(host.hostname.clone(), Style::default().fg(styles::cyan())),
-                Span::styled(port_display, Style::default().fg(styles::fg())),
-                Span::styled(tags_str, Style::default().fg(styles::purple())),
-            ];
+                    let status_span = if is_multi_selected {
+                        Span::styled("\u{2713} ", Style::default().fg(styles::cyan()))
+                    } else {
+                        Span::styled(indicator.to_string(), status_style)
+                    };
 
-            let row = Row::new(cells);
-            if is_cursor {
-                row.style(styles::table_selected_style())
-            } else if is_multi_selected {
-                row.style(styles::multi_selected_style())
-            } else {
-                row.style(styles::table_row_style())
+                    let name_display = if app.favorites.is_favorite(&host.name) {
+                        format!("\u{2605} {}", host.name)
+                    } else {
+                        host.name.clone()
+                    };
+
+                    let name_style = if is_multi_selected {
+                        Style::default().fg(styles::cyan())
+                    } else if app.favorites.is_favorite(&host.name) {
+                        Style::default().fg(styles::yellow())
+                    } else {
+                        Style::default().fg(styles::fg())
+                    };
+
+                    let cells = vec![
+                        status_span,
+                        Span::styled(name_display, name_style),
+                        Span::styled(host.user.clone(), Style::default().fg(styles::fg())),
+                        Span::styled(host.hostname.clone(), Style::default().fg(styles::cyan())),
+                        Span::styled(port_display, Style::default().fg(styles::fg())),
+                        Span::styled(tags_str, Style::default().fg(styles::purple())),
+                    ];
+
+                    let row = Row::new(cells);
+                    if is_cursor {
+                        row.style(styles::table_selected_style())
+                    } else if is_multi_selected {
+                        row.style(styles::multi_selected_style())
+                    } else {
+                        row.style(styles::table_row_style())
+                    }
+                }
             }
         })
         .collect();
@@ -309,13 +350,13 @@ fn draw_table(f: &mut Frame, app: &App, area: Rect) {
 
     f.render_widget(table, area);
 
-    // Render scrollbar when there are more hosts than visible rows
+    // Render scrollbar when there are more rows than visible
     let visible = app.visible_rows();
-    if app.filtered_hosts.len() > visible {
+    if total_rows > visible {
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
             .begin_symbol(Some("\u{25b2}"))
             .end_symbol(Some("\u{25bc}"));
-        let mut scrollbar_state = ScrollbarState::new(app.filtered_hosts.len())
+        let mut scrollbar_state = ScrollbarState::new(total_rows)
             .position(app.selected);
         f.render_stateful_widget(scrollbar, area, &mut scrollbar_state);
     }
@@ -1195,6 +1236,128 @@ fn draw_snippets_overlay(f: &mut Frame, app: &App, area: Rect) {
         )));
     }
 
+
+    let paragraph = Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(styles::border_focused_style())
+            .style(Style::default().bg(styles::bg()).fg(styles::fg())),
+    );
+    f.render_widget(paragraph, popup_area);
+}
+
+fn draw_group_create_overlay(f: &mut Frame, app: &App, area: Rect) {
+    let popup_width = 50u16.min(area.width.saturating_sub(4));
+    let popup_height = 7u16;
+    let x = (area.width.saturating_sub(popup_width)) / 2;
+    let y = (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect::new(x, y, popup_width, popup_height);
+
+    f.render_widget(Clear, popup_area);
+
+    let lines = vec![
+        Line::from(Span::styled(
+            " CREATE GROUP ",
+            Style::default()
+                .fg(styles::bg())
+                .bg(styles::primary())
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  Name: ", Style::default().fg(styles::muted())),
+            Span::styled(
+                format!("{}_", app.group_input),
+                Style::default().fg(styles::fg()),
+            ),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            "  Enter: create | Esc: cancel",
+            styles::help_text_style(),
+        )),
+    ];
+
+    let paragraph = Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(styles::border_focused_style())
+            .style(Style::default().bg(styles::bg()).fg(styles::fg())),
+    );
+    f.render_widget(paragraph, popup_area);
+}
+
+fn draw_group_picker_overlay(f: &mut Frame, app: &App, area: Rect) {
+    let item_count = app.group_picker_items.len() as u16;
+    let content_height = (4 + item_count.max(1)).min(20);
+    let popup_height = (content_height + 2).min(area.height.saturating_sub(4));
+    let popup_width = 44u16.min(area.width.saturating_sub(4));
+    let x = (area.width.saturating_sub(popup_width)) / 2;
+    let y = (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect::new(x, y, popup_width, popup_height);
+
+    f.render_widget(Clear, popup_area);
+
+    let host_name = app.selected_host().map(|h| h.name.as_str()).unwrap_or("?");
+
+    let mut lines = vec![
+        Line::from(Span::styled(
+            " ASSIGN TO GROUP ",
+            Style::default()
+                .fg(styles::bg())
+                .bg(styles::primary())
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(vec![
+            Span::styled("  Host: ", Style::default().fg(styles::muted())),
+            Span::styled(host_name, Style::default().fg(styles::fg()).add_modifier(Modifier::BOLD)),
+        ]),
+        Line::from(""),
+    ];
+
+    if app.group_picker_items.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "  No groups yet. Press G to create one.",
+            Style::default().fg(styles::muted()),
+        )));
+    } else {
+        for (i, group_name) in app.group_picker_items.iter().enumerate() {
+            let is_selected = i == app.group_picker_selected;
+            let indicator = if is_selected { "> " } else { "  " };
+            let is_current = app.groups.get_group_for_host(host_name) == Some(group_name.as_str())
+                || (group_name == "Ungrouped" && app.groups.get_group_for_host(host_name).is_none());
+
+            let name_style = if is_selected {
+                Style::default()
+                    .fg(styles::primary())
+                    .add_modifier(Modifier::BOLD)
+            } else if is_current {
+                Style::default().fg(styles::green())
+            } else {
+                Style::default().fg(styles::fg())
+            };
+
+            let current_marker = if is_current { " *" } else { "" };
+            let row_style = if is_selected {
+                Style::default().bg(styles::selection_bg())
+            } else {
+                Style::default()
+            };
+
+            lines.push(Line::from(vec![
+                Span::styled(indicator, Style::default().fg(styles::primary())),
+                Span::styled(format!("{}{}", group_name, current_marker), name_style),
+            ]).style(row_style));
+        }
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  j/k: navigate | Enter: assign | Esc: cancel",
+        styles::help_text_style(),
+    )));
 
     let paragraph = Paragraph::new(lines).block(
         Block::default()

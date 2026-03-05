@@ -55,7 +55,7 @@ pub fn draw(f: &mut Frame, area: Rect) {
             Span::styled("Jump to first host", desc_style),
         ]),
         Line::from(vec![
-            Span::styled("  End / G  ", key_style),
+            Span::styled("  End      ", key_style),
             Span::styled("Jump to last host", desc_style),
         ]),
         Line::from(vec![
@@ -145,6 +145,18 @@ pub fn draw(f: &mut Frame, area: Rect) {
         Line::from(vec![
             Span::styled("  S        ", key_style),
             Span::styled("Command snippets", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  G        ", key_style),
+            Span::styled("Create group", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  g        ", key_style),
+            Span::styled("Assign host to group", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  Enter    ", key_style),
+            Span::styled("Collapse/expand group (on group header)", desc_style),
         ]),
         Line::from(""),
         // File Transfer

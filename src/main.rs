@@ -3,6 +3,7 @@ mod config;
 mod connectivity;
 mod credentials;
 mod favorites;
+mod groups;
 mod history;
 mod snippets;
 mod theme;

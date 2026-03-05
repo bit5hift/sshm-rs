@@ -1,6 +1,7 @@
 use crate::config::SshHost;
 use crate::connectivity::{HostStatus, PingManager};
 use crate::favorites::FavoritesManager;
+use crate::groups::GroupsManager;
 use crate::history::HistoryManager;
 use crate::snippets::SnippetManager;
 use nucleo_matcher::pattern::{AtomKind, CaseMatching, Normalization, Pattern};
@@ -20,6 +21,14 @@ pub enum ViewMode {
     Broadcast,
     Snippets,
     FileTransfer,
+    GroupCreate,
+    GroupPicker,
+}
+
+#[derive(Debug, Clone)]
+pub enum DisplayRow {
+    GroupHeader { name: String, host_count: usize, collapsed: bool },
+    HostRow(usize),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -216,6 +225,13 @@ pub struct App {
     pub scp_focused: usize,
     pub scp_error: Option<String>,
     pub scp_target: Option<String>,
+
+    // Groups
+    pub groups: GroupsManager,
+    pub display_rows: Vec<DisplayRow>,
+    pub group_input: String,
+    pub group_picker_items: Vec<String>,
+    pub group_picker_selected: usize,
 }
 
 impl App {
@@ -284,10 +300,16 @@ impl App {
             scp_focused: 0,
             scp_error: None,
             scp_target: None,
+            groups: GroupsManager::load().unwrap_or_default(),
+            display_rows: Vec::new(),
+            group_input: String::new(),
+            group_picker_items: Vec::new(),
+            group_picker_selected: 0,
         };
         app.hosts = app.sort_hosts(&hosts);
         app.filtered_hosts = app.hosts.clone();
         app.sidebar_tags = app.build_tag_list();
+        app.rebuild_display_rows();
         app.start_ping();
         app
     }
@@ -392,6 +414,82 @@ impl App {
             self.hosts = self.sort_hosts(&hosts);
             self.apply_filter();
             self.refresh_sidebar_tags();
+        }
+    }
+
+    pub fn rebuild_display_rows(&mut self) {
+        // If search is active or tag filter is active, flat list without group headers
+        if !self.search_query.is_empty() || self.sidebar_active_tag.is_some() {
+            self.display_rows = (0..self.filtered_hosts.len())
+                .map(DisplayRow::HostRow)
+                .collect();
+            return;
+        }
+
+        let mut rows: Vec<DisplayRow> = Vec::new();
+        let ordered_groups = self
+            .groups
+            .ordered_groups()
+            .iter()
+            .map(|g| (g.name.clone(), g.collapsed))
+            .collect::<Vec<_>>();
+
+        for (group_name, collapsed) in &ordered_groups {
+            let group_hosts: Vec<usize> = self
+                .filtered_hosts
+                .iter()
+                .enumerate()
+                .filter(|(_, h)| self.groups.get_group_for_host(&h.name) == Some(group_name.as_str()))
+                .map(|(i, _)| i)
+                .collect();
+
+            if group_hosts.is_empty() {
+                continue;
+            }
+
+            rows.push(DisplayRow::GroupHeader {
+                name: group_name.clone(),
+                host_count: group_hosts.len(),
+                collapsed: *collapsed,
+            });
+
+            if !collapsed {
+                for idx in group_hosts {
+                    rows.push(DisplayRow::HostRow(idx));
+                }
+            }
+        }
+
+        // Ungrouped hosts
+        let ungrouped: Vec<usize> = self
+            .filtered_hosts
+            .iter()
+            .enumerate()
+            .filter(|(_, h)| self.groups.get_group_for_host(&h.name).is_none())
+            .map(|(i, _)| i)
+            .collect();
+
+        if !ungrouped.is_empty() {
+            // Only show "Ungrouped" header if there are actual groups defined
+            if !self.groups.groups.is_empty() {
+                rows.push(DisplayRow::GroupHeader {
+                    name: "Ungrouped".to_string(),
+                    host_count: ungrouped.len(),
+                    collapsed: false,
+                });
+            }
+            for idx in ungrouped {
+                rows.push(DisplayRow::HostRow(idx));
+            }
+        }
+
+        // If no groups defined at all, just use flat list
+        if self.groups.groups.is_empty() {
+            self.display_rows = (0..self.filtered_hosts.len())
+                .map(DisplayRow::HostRow)
+                .collect();
+        } else {
+            self.display_rows = rows;
         }
     }
 
@@ -503,6 +601,12 @@ impl App {
         } else {
             self.selected = 0;
         }
+        self.rebuild_display_rows();
+        // Re-clamp after display_rows are built (group headers add rows)
+        let row_count = self.display_rows.len();
+        if row_count > 0 && self.selected >= row_count {
+            self.selected = row_count - 1;
+        }
         self.clamp_offset();
     }
 
@@ -514,7 +618,12 @@ impl App {
     }
 
     pub fn move_down(&mut self) {
-        if !self.filtered_hosts.is_empty() && self.selected < self.filtered_hosts.len() - 1 {
+        let row_count = if self.display_rows.is_empty() {
+            self.filtered_hosts.len()
+        } else {
+            self.display_rows.len()
+        };
+        if row_count > 0 && self.selected < row_count - 1 {
             self.selected += 1;
             self.clamp_offset();
         }
@@ -530,7 +639,13 @@ impl App {
     }
 
     pub fn selected_host(&self) -> Option<&SshHost> {
-        self.filtered_hosts.get(self.selected)
+        if self.display_rows.is_empty() {
+            return self.filtered_hosts.get(self.selected);
+        }
+        match self.display_rows.get(self.selected) {
+            Some(DisplayRow::HostRow(idx)) => self.filtered_hosts.get(*idx),
+            _ => None,
+        }
     }
 
     pub fn toggle_select(&mut self) {

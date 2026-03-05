@@ -2,7 +2,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifier
 use std::time::{Duration, Instant};
 
 use crate::theme::Theme;
-use crate::ui::app::{AddField, App, ViewMode};
+use crate::ui::app::{AddField, App, DisplayRow, ViewMode};
 use crate::ui::styles;
 
 /// Poll for crossterm events, returning true if the terminal was resized.
@@ -49,6 +49,8 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         ViewMode::Broadcast => handle_broadcast_key(app, key),
         ViewMode::Snippets => handle_snippets_key(app, key),
         ViewMode::FileTransfer => handle_file_transfer_key(app, key),
+        ViewMode::GroupCreate => handle_group_create_key(app, key),
+        ViewMode::GroupPicker => handle_group_picker_key(app, key),
     }
 }
 
@@ -199,14 +201,23 @@ fn handle_table_key(app: &mut App, key: KeyEvent) {
             app.selected = 0;
             app.table_offset = 0;
         }
-        KeyCode::End | KeyCode::Char('G') => {
-            if !app.filtered_hosts.is_empty() {
-                app.selected = app.filtered_hosts.len() - 1;
+        KeyCode::End => {
+            let row_count = if app.display_rows.is_empty() {
+                app.filtered_hosts.len()
+            } else {
+                app.display_rows.len()
+            };
+            if row_count > 0 {
+                app.selected = row_count - 1;
                 let visible = app.visible_rows();
-                if app.filtered_hosts.len() > visible {
-                    app.table_offset = app.filtered_hosts.len() - visible;
+                if row_count > visible {
+                    app.table_offset = row_count - visible;
                 }
             }
+        }
+        KeyCode::Char('G') => {
+            app.group_input.clear();
+            app.view_mode = ViewMode::GroupCreate;
         }
         KeyCode::PageUp => {
             let page = app.visible_rows();
@@ -230,7 +241,14 @@ fn handle_table_key(app: &mut App, key: KeyEvent) {
             }
         }
         KeyCode::Enter => {
-            if app.has_selection() {
+            // Check if cursor is on a GroupHeader
+            if let Some(DisplayRow::GroupHeader { name, .. }) = app.display_rows.get(app.selected) {
+                let name = name.clone();
+                if name != "Ungrouped" {
+                    app.groups.toggle_collapse(&name);
+                    app.rebuild_display_rows();
+                }
+            } else if app.has_selection() {
                 let count = app.selected_hosts.len();
                 app.show_toast(&format!("{count} host{} selected — d: delete | Esc: clear", if count == 1 { "" } else { "s" }));
             } else if let Some(host) = app.selected_host() {
@@ -282,6 +300,18 @@ fn handle_table_key(app: &mut App, key: KeyEvent) {
                 } else {
                     app.show_toast("Added to favorites");
                 }
+            }
+        }
+        KeyCode::Char('g') => {
+            if app.selected_host().is_some() {
+                let mut items: Vec<String> = app.groups.ordered_groups()
+                    .into_iter()
+                    .map(|g| g.name.clone())
+                    .collect();
+                items.push("Ungrouped".to_string());
+                app.group_picker_items = items;
+                app.group_picker_selected = 0;
+                app.view_mode = ViewMode::GroupPicker;
             }
         }
         KeyCode::Char('r') => {
@@ -1186,6 +1216,71 @@ fn handle_snippet_add_key(app: &mut App, key: KeyEvent) {
             app.snippet_focused = 0;
             app.snippet_error = None;
             app.show_toast("Snippet saved");
+        }
+        _ => {}
+    }
+}
+
+fn handle_group_create_key(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => {
+            app.group_input.clear();
+            app.view_mode = ViewMode::List;
+        }
+        KeyCode::Backspace => {
+            app.group_input.pop();
+        }
+        KeyCode::Char(c) => {
+            app.group_input.push(c);
+        }
+        KeyCode::Enter => {
+            let name = app.group_input.trim().to_string();
+            if name.is_empty() {
+                app.group_input.clear();
+                app.view_mode = ViewMode::List;
+                return;
+            }
+            app.groups.create_group(name.clone());
+            app.group_input.clear();
+            app.rebuild_display_rows();
+            app.show_toast(&format!("Group '{name}' created"));
+            app.view_mode = ViewMode::List;
+        }
+        _ => {}
+    }
+}
+
+fn handle_group_picker_key(app: &mut App, key: KeyEvent) {
+    let item_count = app.group_picker_items.len();
+
+    match key.code {
+        KeyCode::Esc => {
+            app.view_mode = ViewMode::List;
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            if app.group_picker_selected > 0 {
+                app.group_picker_selected -= 1;
+            }
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            if item_count > 0 && app.group_picker_selected < item_count - 1 {
+                app.group_picker_selected += 1;
+            }
+        }
+        KeyCode::Enter => {
+            if let Some(host) = app.selected_host().cloned() {
+                if let Some(group_name) = app.group_picker_items.get(app.group_picker_selected).cloned() {
+                    if group_name == "Ungrouped" {
+                        app.groups.unassign_host(&host.name);
+                        app.show_toast(&format!("'{}' removed from group", host.name));
+                    } else {
+                        app.groups.assign_host(&host.name, &group_name);
+                        app.show_toast(&format!("'{}' added to '{}'", host.name, group_name));
+                    }
+                    app.rebuild_display_rows();
+                }
+            }
+            app.view_mode = ViewMode::List;
         }
         _ => {}
     }
