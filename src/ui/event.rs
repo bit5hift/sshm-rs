@@ -105,9 +105,25 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
             // Layout: title (5 or 1 lines) + search bar (3 lines) + table border (1 line) + header (1 line)
             let title_height: u16 = if app.height < 20 { 1 } else { 5 };
             let table_top_offset: u16 = title_height + 3 + 1 + 1;
-            if mouse.row >= table_top_offset {
+            // Account for sidebar offset on x-coordinate
+            let x_offset: u16 = if app.show_sidebar { 20 } else { 0 };
+            if mouse.row >= table_top_offset && mouse.column >= x_offset {
                 let clicked_index = app.table_offset + (mouse.row - table_top_offset) as usize;
-                if clicked_index < app.filtered_hosts.len() {
+                let total_rows = if app.display_rows.is_empty() {
+                    app.filtered_hosts.len()
+                } else {
+                    app.display_rows.len()
+                };
+                if clicked_index < total_rows {
+                    // Check if we clicked on a group header
+                    if let Some(DisplayRow::GroupHeader { ref name, .. }) = app.display_rows.get(clicked_index) {
+                        let group_name = name.clone();
+                        app.selected = clicked_index;
+                        app.groups.toggle_collapse(&group_name);
+                        app.rebuild_display_rows();
+                        return;
+                    }
+
                     // Double-click detection: same row within 400ms → connect
                     let now = Instant::now();
                     if let (Some(last_time), Some(last_idx)) = (app.last_click_time, app.last_click_index) {
