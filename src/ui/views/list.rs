@@ -345,7 +345,7 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
         )
     } else {
         (
-            " j/k | Enter | / | s | f | F | y | t | r | p | i | ? | q".to_string(),
+            " ? Help".to_string(),
             styles::help_text_style(),
         )
     };
