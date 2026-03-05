@@ -68,15 +68,22 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
         MouseEventKind::Down(MouseButton::Left) => {
             // Sidebar click handling: sidebar is 20 columns wide at x=0
             if app.show_sidebar && mouse.column < 20 {
-                // Sidebar border is 1 row at the top; items start at row 1
-                if mouse.row >= 1 {
-                    let item_index = (mouse.row - 1) as usize;
-                    let total_items = app.sidebar_tags.len() + 1;
+                // Sidebar has a 1-row border at top (" Tags " title line)
+                // Items start at row 1 inside the block (absolute row >= 1)
+                // But we must skip the border: first clickable item is at absolute row 1
+                let border_top = 1u16; // top border of the Block
+                if mouse.row >= border_top {
+                    let item_index = (mouse.row - border_top) as usize;
+                    let total_items = app.sidebar_tags.len() + 1; // "All Hosts" + tags
                     if item_index < total_items {
                         app.sidebar_focused = true;
                         app.sidebar_selected = item_index;
                         if item_index == 0 {
-                            app.sidebar_active_tag = None;
+                            // "All Hosts" — clear tag filter
+                            if app.sidebar_active_tag.is_some() {
+                                app.sidebar_active_tag = None;
+                                app.apply_filter();
+                            }
                         } else {
                             let tag_index = item_index - 1;
                             if let Some(tag) = app.sidebar_tags.get(tag_index).cloned() {
@@ -85,9 +92,9 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
                                 } else {
                                     app.sidebar_active_tag = Some(tag);
                                 }
+                                app.apply_filter();
                             }
                         }
-                        app.apply_filter();
                     }
                 }
                 return;
