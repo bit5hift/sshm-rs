@@ -61,7 +61,7 @@ async fn main() -> Result<()> {
         };
         Auth::Password(pw)
     } else {
-        Auth::Agent
+        Auth::AutoDetect
     };
 
     enable_raw_mode()?;
@@ -298,7 +298,7 @@ fn parse_target(host_arg: &str, user_override: &Option<String>) -> (String, Stri
     } else {
         let user = user_override
             .clone()
-            .unwrap_or_else(|| whoami::username());
+            .unwrap_or_else(whoami::username);
         (user, host_arg.to_string())
     }
 }

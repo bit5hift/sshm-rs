@@ -4,18 +4,19 @@ use russh::client::{self, Msg};
 use russh::keys::{PrivateKeyWithHashAlg, load_secret_key};
 use russh::{Channel, ChannelReadHalf, ChannelWriteHalf};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone)]
 pub enum Auth {
     Password(String),
     PublicKey(PathBuf),
-    Agent,
+    AutoDetect,
 }
 
 struct SshHandler {
     host: String,
     port: u16,
+    host_key_message: Arc<Mutex<Option<String>>>,
 }
 
 impl client::Handler for SshHandler {
@@ -31,8 +32,18 @@ impl client::Handler for SshHandler {
         match check_known_hosts(&self.host, self.port, server_public_key) {
             Ok(true) => Ok(true),
             Ok(false) => {
+                let fingerprint = server_public_key.fingerprint(
+                    russh::keys::ssh_key::HashAlg::Sha256,
+                );
                 learn_known_hosts(&self.host, self.port, server_public_key)
                     .map_err(|e| anyhow::anyhow!("Failed to write to known_hosts: {}", e))?;
+                let msg = format!(
+                    "New host key accepted ({}) for {}:{}",
+                    fingerprint, self.host, self.port
+                );
+                if let Ok(mut guard) = self.host_key_message.lock() {
+                    *guard = Some(msg);
+                }
                 Ok(true)
             }
             Err(KeyError::KeyChanged { line }) => {
@@ -52,17 +63,21 @@ impl client::Handler for SshHandler {
 pub struct SshConnection {
     handle: client::Handle<SshHandler>,
     shell_writer: Option<ChannelWriteHalf<Msg>>,
+    pub host_key_message: Option<String>,
 }
 
 impl SshConnection {
     pub async fn connect(host: String, port: u16, user: String, auth: Auth) -> Result<Self> {
         let config = Arc::new(client::Config::default());
+        let host_key_message_slot: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         let handler = SshHandler {
             host: host.clone(),
             port,
+            host_key_message: Arc::clone(&host_key_message_slot),
         };
 
         let mut handle = client::connect(config, (host.as_str(), port), handler).await?;
+        let host_key_message = host_key_message_slot.lock().ok().and_then(|mut g| g.take());
 
         match auth {
             Auth::Password(pw) => {
@@ -89,7 +104,7 @@ impl SshConnection {
                     anyhow::bail!("Public key authentication failed");
                 }
             }
-            Auth::Agent => {
+            Auth::AutoDetect => {
                 let home = dirs::home_dir().unwrap_or_default();
                 let key_paths = vec![
                     home.join(".ssh/id_ed25519"),
@@ -130,6 +145,7 @@ impl SshConnection {
         Ok(Self {
             handle,
             shell_writer: None,
+            host_key_message,
         })
     }
 

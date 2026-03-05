@@ -1,2 +1,5 @@
 /target
 .claude/worktrees/
+.env
+*.pem
+*.key

@@ -236,6 +236,48 @@ fn connect_ssh2_interactive(
     let mut session = Session::new()?;
     session.set_tcp_stream(tcp);
     session.handshake()?;
+
+    // Verify host key before sending credentials
+    let port_num: u16 = port.parse().unwrap_or(22);
+    if let Some((host_key, key_type)) = session.host_key() {
+        let known_hosts_path = dirs::home_dir()
+            .unwrap_or_default()
+            .join(".ssh")
+            .join("known_hosts");
+
+        let mut known_hosts = session.known_hosts()?;
+        if known_hosts_path.exists() {
+            let _ = known_hosts.read_file(&known_hosts_path, ssh2::KnownHostFileKind::OpenSSH);
+        }
+
+        let check = known_hosts.check_port(hostname, port_num, host_key);
+        match check {
+            ssh2::CheckResult::Match => {}
+            ssh2::CheckResult::Mismatch => {
+                return Err(anyhow::anyhow!(
+                    "HOST KEY CHANGED for {}:{}! Possible MITM attack. Connection refused.\n\
+                     Remove the old key from ~/.ssh/known_hosts to connect.",
+                    hostname,
+                    port
+                ));
+            }
+            ssh2::CheckResult::NotFound | ssh2::CheckResult::Failure => {
+                let host_entry = if port_num == 22 {
+                    hostname.to_string()
+                } else {
+                    format!("[{}]:{}", hostname, port_num)
+                };
+                known_hosts.add(&host_entry, host_key, "", key_type.into())?;
+                if let Some(parent) = known_hosts_path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                known_hosts.write_file(&known_hosts_path, ssh2::KnownHostFileKind::OpenSSH)?;
+            }
+        }
+    } else {
+        return Err(anyhow::anyhow!("Server did not provide a host key"));
+    }
+
     session.userauth_password(user, password)?;
 
     if !session.authenticated() {
@@ -545,7 +587,37 @@ pub fn launch_sshm_term(host: &str, config_file: Option<&str>) -> Result<()> {
         if let Some(password) = crate::credentials::get_password(host) {
             // Pass password via env var (not CLI arg, which is visible in ps)
             cmd_args.push("--password".to_string());
-            std::env::set_var("SSHM_PASSWORD", &password);
+
+            let current_exe = std::env::current_exe()?;
+            let exe_dir = current_exe.parent().unwrap_or(std::path::Path::new("."));
+
+            let sshm_term_path = if cfg!(windows) {
+                exe_dir.join("sshm-term.exe")
+            } else {
+                exe_dir.join("sshm-term")
+            };
+
+            let program = if sshm_term_path.exists() {
+                sshm_term_path.to_string_lossy().to_string()
+            } else {
+                "sshm-term".to_string()
+            };
+
+            let mut cmd = std::process::Command::new(&program);
+            cmd.args(&cmd_args);
+            cmd.env("SSHM_PASSWORD", &password);
+
+            cmd.stdin(std::process::Stdio::inherit())
+                .stdout(std::process::Stdio::inherit())
+                .stderr(std::process::Stdio::inherit());
+
+            let status = cmd.status()?;
+
+            if !status.success() {
+                eprintln!("sshm-term exited with status: {}", status);
+            }
+
+            return Ok(());
         }
     } else {
         cmd_args.push(host.to_string());

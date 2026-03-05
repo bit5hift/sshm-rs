@@ -45,7 +45,6 @@ russh-sftp = "2.1"
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
 tui-term = "0.2"
-tui-tree-widget = "0.24"
 vt100 = "0.15"
 
 [dev-dependencies]

@@ -221,10 +221,9 @@ impl SftpBrowser {
 
         let temp_dir = std::env::temp_dir().join("sshm-term");
         tokio::fs::create_dir_all(&temp_dir).await?;
-        let random: u64 = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos() as u64;
+        use std::collections::hash_map::RandomState;
+        use std::hash::{BuildHasher, Hasher};
+        let random: u64 = RandomState::new().build_hasher().finish();
         let safe_name = format!("{}.{:x}", filename, random);
         let local_path = temp_dir.join(safe_name);
 
@@ -319,6 +318,9 @@ impl SftpBrowser {
             .ok_or_else(|| anyhow::anyhow!("No SFTP session"))?;
 
         let filename = remote_path.rsplit('/').next().unwrap_or("file");
+        if filename.contains("..") || filename.contains('/') || filename.contains('\\') || filename.is_empty() {
+            return Err(anyhow::anyhow!("Invalid remote filename: {}", filename));
+        }
         let local_path = local_dir.join(filename);
 
         let mut remote_file = sftp.open(remote_path).await?;

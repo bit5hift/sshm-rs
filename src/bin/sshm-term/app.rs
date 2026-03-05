@@ -103,8 +103,12 @@ impl App {
             self.auth.clone(),
         )
         .await?;
+        if let Some(msg) = conn.host_key_message.as_ref() {
+            self.status_message = msg.clone();
+        } else {
+            self.status_message = format!("Connected to {}:{}", self.host, self.port);
+        }
         self.ssh = Some(conn);
-        self.status_message = format!("Connected to {}:{}", self.host, self.port);
         Ok(())
     }
 
@@ -378,6 +382,21 @@ impl App {
                 match key.code {
                     KeyCode::Char('y') | KeyCode::Char('Y') => {
                         if let Some((path, is_dir)) = self.confirm_delete.take() {
+                            const BLOCKLIST: &[&str] = &[
+                                "/", "/bin", "/boot", "/dev", "/etc", "/home",
+                                "/lib", "/lib64", "/opt", "/proc", "/root", "/run",
+                                "/sbin", "/srv", "/sys", "/tmp", "/usr", "/var",
+                            ];
+                            let trimmed = path.trim_end_matches('/');
+                            if trimmed.is_empty()
+                                || trimmed == "."
+                                || trimmed == ".."
+                                || BLOCKLIST.contains(&trimmed)
+                            {
+                                self.status_message =
+                                    format!("Refused to delete protected path: {}", path);
+                                return Ok(());
+                            }
                             if let Some(ssh) = &self.ssh {
                                 let cmd = if is_dir {
                                     format!("rm -rf {}", shell_escape(&path))
