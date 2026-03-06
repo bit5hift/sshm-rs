@@ -115,6 +115,9 @@ async fn run(
             }
         }
     }
+    if let Some(ssh) = &app.ssh {
+        app.sftp.load_name_cache(ssh).await;
+    }
 
     if let Some(mut reader) = shell_reader {
         let ssh_tx = event_tx.clone();

@@ -1,5 +1,6 @@
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent};
+use std::collections::HashMap;
 use tokio::io::AsyncReadExt;
 
 #[derive(Debug, Clone)]
@@ -10,6 +11,8 @@ pub struct SftpEntry {
     pub is_dir: bool,
     #[allow(dead_code)]
     pub modified: u64,
+    pub uid: Option<u32>,
+    pub gid: Option<u32>,
 }
 
 /// Join two POSIX path components (never uses backslash).
@@ -42,6 +45,9 @@ pub struct SftpBrowser {
     sftp: Option<russh_sftp::client::SftpSession>,
     pub loading: bool,
     pub error: Option<String>,
+    pub uid_cache: HashMap<u32, String>,
+    pub gid_cache: HashMap<u32, String>,
+    pub cache_loaded: bool,
 }
 
 impl SftpBrowser {
@@ -54,11 +60,68 @@ impl SftpBrowser {
             sftp: None,
             loading: false,
             error: None,
+            uid_cache: HashMap::new(),
+            gid_cache: HashMap::new(),
+            cache_loaded: false,
         }
     }
 
     pub fn set_session(&mut self, sftp: russh_sftp::client::SftpSession) {
         self.sftp = Some(sftp);
+    }
+
+    /// Fetch /etc/passwd and /etc/group from the remote server and populate
+    /// uid/gid name caches. Errors are silently ignored — numeric IDs are used
+    /// as fallback when the cache is empty or incomplete.
+    pub async fn load_name_cache(&mut self, ssh: &crate::ssh::SshConnection) {
+        if self.cache_loaded {
+            return;
+        }
+        self.cache_loaded = true;
+
+        if let Ok(passwd) = ssh.exec_command("cat /etc/passwd").await {
+            for line in passwd.lines() {
+                let fields: Vec<&str> = line.splitn(7, ':').collect();
+                if fields.len() >= 3 {
+                    if let Ok(uid) = fields[2].parse::<u32>() {
+                        self.uid_cache.insert(uid, fields[0].to_string());
+                    }
+                }
+            }
+        }
+
+        if let Ok(group) = ssh.exec_command("cat /etc/group").await {
+            for line in group.lines() {
+                let fields: Vec<&str> = line.splitn(4, ':').collect();
+                if fields.len() >= 3 {
+                    if let Ok(gid) = fields[2].parse::<u32>() {
+                        self.gid_cache.insert(gid, fields[0].to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn resolve_owner(&self, uid: Option<u32>) -> String {
+        match uid {
+            Some(id) => self
+                .uid_cache
+                .get(&id)
+                .cloned()
+                .unwrap_or_else(|| id.to_string()),
+            None => "-".to_string(),
+        }
+    }
+
+    pub fn resolve_group(&self, gid: Option<u32>) -> String {
+        match gid {
+            Some(id) => self
+                .gid_cache
+                .get(&id)
+                .cloned()
+                .unwrap_or_else(|| id.to_string()),
+            None => "-".to_string(),
+        }
     }
 
     pub async fn list_directory(&mut self) -> Result<()> {
@@ -84,6 +147,8 @@ impl SftpBrowser {
                         permissions: metadata.permissions.unwrap_or(0),
                         is_dir: metadata.is_dir(),
                         modified: metadata.mtime.unwrap_or(0) as u64,
+                        uid: metadata.uid,
+                        gid: metadata.gid,
                     });
                 }
 
@@ -102,6 +167,8 @@ impl SftpBrowser {
                             permissions: 0o755,
                             is_dir: true,
                             modified: 0,
+                            uid: None,
+                            gid: None,
                         },
                     );
                 }

@@ -251,7 +251,10 @@ fn render_sftp(frame: &mut Frame, app: &mut App, area: ratatui::layout::Rect) {
     let inner_width = list_area.width.saturating_sub(4) as usize;
     let size_col = 9usize;
     let perm_col = 9usize;
-    let name_col = inner_width.saturating_sub(size_col + perm_col + 2);
+    let owner_col = 8usize;
+    let show_owner = inner_width >= 50;
+    let owner_total = if show_owner { (owner_col + 1) * 2 } else { 0 };
+    let name_col = inner_width.saturating_sub(size_col + perm_col + 2 + owner_total);
 
     let items: Vec<ListItem> = app
         .sftp
@@ -281,14 +284,34 @@ fn render_sftp(frame: &mut Frame, app: &mut App, area: ratatui::layout::Rect) {
 
             let perms_str = SftpBrowser::format_permissions(e.permissions);
 
-            let line = Line::from(vec![
+            let mut spans = vec![
                 Span::styled(icon, icon_style),
                 Span::styled(name_truncated, name_style),
                 Span::raw(" "),
                 Span::styled(size_str, Style::default().fg(Color::Green)),
-                Span::raw(" "),
-                Span::styled(perms_str, Style::default().fg(Color::DarkGray)),
-            ]);
+            ];
+
+            if show_owner {
+                let owner_raw = app.sftp.resolve_owner(e.uid);
+                let group_raw = app.sftp.resolve_group(e.gid);
+                let owner_str = format!(
+                    " {:<width$}",
+                    owner_raw.chars().take(owner_col).collect::<String>(),
+                    width = owner_col
+                );
+                let group_str = format!(
+                    " {:<width$}",
+                    group_raw.chars().take(owner_col).collect::<String>(),
+                    width = owner_col
+                );
+                spans.push(Span::styled(owner_str, Style::default().fg(Color::DarkGray)));
+                spans.push(Span::styled(group_str, Style::default().fg(Color::DarkGray)));
+            }
+
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(perms_str, Style::default().fg(Color::DarkGray)));
+
+            let line = Line::from(spans);
 
             ListItem::new(line)
         })
