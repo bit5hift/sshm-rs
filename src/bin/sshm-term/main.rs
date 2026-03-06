@@ -204,7 +204,7 @@ async fn run(
                 DisableBracketedPaste
             )?;
 
-            let selected_file = open_file_dialog();
+            let selected_files = open_file_dialog_multi();
 
             enable_raw_mode()?;
             execute!(
@@ -215,38 +215,55 @@ async fn run(
             )?;
             term.clear()?;
 
-            if let Some(local_path) = selected_file {
-                let filename = local_path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("file")
-                    .to_string();
-                let remote_path = sftp::posix_join(&app.sftp.current_path, &filename);
-                let total_bytes = std::fs::metadata(&local_path)
-                    .map(|m| m.len())
-                    .unwrap_or(0);
-
-                if app.transfers.active_count() >= 3 {
-                    app.status_message = "Max 3 concurrent transfers — wait for one to finish".to_string();
-                } else if let Some(sftp_arc) = app.sftp.session_arc() {
-                    let cancel = tokio_util::sync::CancellationToken::new();
-                    let id = app.transfers.start_transfer(
-                        filename.clone(),
-                        total_bytes,
-                        transfer::TransferDirection::Upload,
-                        cancel.clone(),
-                    );
-                    app.status_message = format!("Uploading {}...", filename);
-                    transfer::spawn_upload(
-                        sftp_arc,
-                        local_path,
-                        remote_path,
-                        id,
-                        event_tx.clone(),
-                        cancel,
-                    );
-                } else {
-                    app.status_message = "No SFTP session".to_string();
+            if selected_files.is_empty() {
+                // user cancelled — nothing to do
+            } else if app.sftp.session_arc().is_none() {
+                app.status_message = "No SFTP session".to_string();
+            } else {
+                let total_files = selected_files.len();
+                let mut queued = 0usize;
+                for local_path in selected_files {
+                    if app.transfers.active_count() >= 3 {
+                        app.status_message = format!(
+                            "Queued {} of {} files — max 3 concurrent transfers",
+                            queued, total_files
+                        );
+                        break;
+                    }
+                    let filename = local_path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("file")
+                        .to_string();
+                    let remote_path = sftp::posix_join(&app.sftp.current_path, &filename);
+                    let total_bytes = std::fs::metadata(&local_path)
+                        .map(|m| m.len())
+                        .unwrap_or(0);
+                    if let Some(sftp_arc) = app.sftp.session_arc() {
+                        let cancel = tokio_util::sync::CancellationToken::new();
+                        let id = app.transfers.start_transfer(
+                            filename.clone(),
+                            total_bytes,
+                            transfer::TransferDirection::Upload,
+                            cancel.clone(),
+                        );
+                        transfer::spawn_upload(
+                            sftp_arc,
+                            local_path,
+                            remote_path,
+                            id,
+                            event_tx.clone(),
+                            cancel,
+                        );
+                        queued += 1;
+                    }
+                }
+                if app.transfers.active_count() < 3 {
+                    app.status_message = if queued == 1 {
+                        "Uploading 1 file...".to_string()
+                    } else {
+                        format!("Uploading {} files...", queued)
+                    };
                 }
             }
         }
@@ -255,56 +272,87 @@ async fn run(
     Ok(())
 }
 
-fn open_file_dialog() -> Option<std::path::PathBuf> {
+fn open_file_dialog_multi() -> Vec<std::path::PathBuf> {
     if cfg!(windows) {
         let output = std::process::Command::new("powershell")
             .args([
                 "-NoProfile",
                 "-Command",
-                r#"Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.OpenFileDialog; $f.Title = 'Select file to upload'; if ($f.ShowDialog() -eq 'OK') { $f.FileName }"#,
+                r#"Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.OpenFileDialog; $f.Title = 'Select files to upload'; $f.Multiselect = $true; if ($f.ShowDialog() -eq 'OK') { $f.FileNames -join "`n" }"#,
             ])
             .output()
-            .ok()?;
-        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if path.is_empty() { None } else { Some(std::path::PathBuf::from(path)) }
+            .ok();
+        match output {
+            Some(o) => String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .map(|l| l.trim().to_string())
+                .filter(|l| !l.is_empty())
+                .map(std::path::PathBuf::from)
+                .collect(),
+            None => vec![],
+        }
     } else if cfg!(target_os = "macos") {
         let output = std::process::Command::new("osascript")
-            .args(["-e", r#"POSIX path of (choose file with prompt "Select file to upload")"#])
+            .args(["-e", r#"set fs to (choose file with prompt "Select files to upload" with multiple selections allowed)
+set out to ""
+repeat with f in fs
+  set out to out & POSIX path of f & linefeed
+end repeat
+out"#])
             .output()
-            .ok()?;
-        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if path.is_empty() { None } else { Some(std::path::PathBuf::from(path)) }
+            .ok();
+        match output {
+            Some(o) => String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .map(|l| l.trim().to_string())
+                .filter(|l| !l.is_empty())
+                .map(std::path::PathBuf::from)
+                .collect(),
+            None => vec![],
+        }
     } else {
-        let output = std::process::Command::new("zenity")
-            .args(["--file-selection", "--title=Select file to upload"])
-            .output()
-            .or_else(|_| {
-                std::process::Command::new("kdialog")
-                    .args(["--getopenfilename", ".", "All Files (*)"])
-                    .output()
-            })
-            .ok()?;
+        // Try zenity with --multiple, then kdialog, then stdin fallback
+        let zenity = std::process::Command::new("zenity")
+            .args(["--file-selection", "--title=Select files to upload", "--multiple", "--separator=\n"])
+            .output();
+        let kdialog = || {
+            std::process::Command::new("kdialog")
+                .args(["--getopenfilenames", ".", "All Files (*)", "--separator", "\n"])
+                .output()
+        };
 
-        if output.status.success() {
-            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if path.is_empty() { None } else { Some(std::path::PathBuf::from(path)) }
+        let result = zenity
+            .ok()
+            .filter(|o| o.status.success())
+            .or_else(|| kdialog().ok().filter(|o| o.status.success()));
+
+        if let Some(output) = result {
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .map(|l| l.trim().to_string())
+                .filter(|l| !l.is_empty())
+                .map(std::path::PathBuf::from)
+                .collect()
         } else {
-            println!("Enter local file path to upload (or press Enter to cancel):");
-            let mut input = String::new();
-            std::io::stdin().read_line(&mut input).ok()?;
-            let path = input.trim().to_string();
-            if path.is_empty() {
-                None
-            } else {
-                let p = std::path::PathBuf::from(&path);
+            println!("Enter local file paths to upload, one per line (empty line to finish):");
+            let mut paths = vec![];
+            loop {
+                let mut input = String::new();
+                if std::io::stdin().read_line(&mut input).is_err() {
+                    break;
+                }
+                let trimmed = input.trim().to_string();
+                if trimmed.is_empty() {
+                    break;
+                }
+                let p = std::path::PathBuf::from(&trimmed);
                 if p.exists() {
-                    Some(p)
+                    paths.push(p);
                 } else {
-                    eprintln!("File not found: {}", path);
-                    std::thread::sleep(std::time::Duration::from_secs(2));
-                    None
+                    eprintln!("File not found: {}", trimmed);
                 }
             }
+            paths
         }
     }
 }
