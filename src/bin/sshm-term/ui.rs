@@ -2,6 +2,7 @@ use crate::{
     app::{App, ContextMenu, PanelFocus},
     sftp::SftpBrowser,
     terminal::TerminalPanelWidget,
+    transfer::{TransferDirection, TransferManager},
 };
 use ratatui::{
     Frame,
@@ -130,9 +131,13 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     let area = frame.area();
     app.frame_area = area;
 
+    // Expand status bar by 1 row per active transfer (max 3 visible), plus 1 for the keybinding bar
+    let active_count = app.transfers.active_count().min(3);
+    let status_height = 1 + active_count as u16;
+
     let vertical = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(0), Constraint::Length(1)])
+        .constraints([Constraint::Min(0), Constraint::Length(status_height)])
         .split(area);
 
     let main_area = vertical[0];
@@ -657,13 +662,39 @@ fn render_snippet_delete(
 }
 
 fn render_status(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
+    let active_count = app.transfers.active_count().min(3);
+
+    // If there are active transfers, split the area: transfers on top rows, keybindings on bottom row
+    let (transfer_area, keys_area) = if active_count > 0 {
+        let splits = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(active_count as u16),
+                Constraint::Length(1),
+            ])
+            .split(area);
+        (Some(splits[0]), splits[1])
+    } else {
+        (None, area)
+    };
+
+    // Render transfer progress rows
+    if let Some(t_area) = transfer_area {
+        let active: Vec<&crate::transfer::TransferInfo> = app.transfers.active_transfers();
+        for (i, info) in active.iter().take(3).enumerate() {
+            let row = Rect::new(t_area.x, t_area.y + i as u16, t_area.width, 1);
+            render_transfer_row(frame, info, row);
+        }
+    }
+
+    // Render keybindings / status line
     if app.confirm_delete.is_some() {
         let paragraph = Paragraph::new(Line::from(vec![
             Span::styled(" \u{26a0} ", Style::default().fg(Color::Red)),
             Span::styled(&app.status_message, Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
         ]))
         .style(Style::default().bg(Color::DarkGray));
-        frame.render_widget(paragraph, area);
+        frame.render_widget(paragraph, keys_area);
         return;
     }
 
@@ -700,7 +731,74 @@ fn render_status(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
         keys.push(Span::styled("[Follow]", Style::default().fg(Color::Cyan)));
     }
 
-    let paragraph = Paragraph::new(Line::from(keys)).style(Style::default().bg(Color::DarkGray));
+    if active_count > 0 {
+        keys.push(Span::raw("  "));
+        keys.push(Span::styled("Ctrl+X", Style::default().fg(Color::Yellow)));
+        keys.push(Span::raw(" cancel transfer"));
+    }
 
+    let paragraph = Paragraph::new(Line::from(keys)).style(Style::default().bg(Color::DarkGray));
+    frame.render_widget(paragraph, keys_area);
+}
+
+fn render_transfer_row(frame: &mut Frame, info: &crate::transfer::TransferInfo, area: Rect) {
+    let width = area.width as usize;
+    if width < 20 {
+        return;
+    }
+
+    let direction_icon = match info.direction {
+        TransferDirection::Upload => "\u{2191}", // ↑
+        TransferDirection::Download => "\u{2193}", // ↓
+    };
+
+    let speed = TransferManager::speed_bytes_per_sec(info);
+    let speed_str = TransferManager::format_speed(speed);
+
+    let eta_str = match TransferManager::eta_secs(info) {
+        Some(s) if s < 60 => format!("ETA {}s", s),
+        Some(s) => format!("ETA {}m{}s", s / 60, s % 60),
+        None => String::new(),
+    };
+
+    let filename_max = 20usize;
+    let filename: String = if info.filename.chars().count() > filename_max {
+        let t: String = info.filename.chars().take(filename_max - 1).collect();
+        format!("{}~", t)
+    } else {
+        info.filename.clone()
+    };
+
+    // Build progress bar (16 chars wide)
+    let bar_width = 16usize;
+    let pct = if info.total_bytes > 0 {
+        (info.transferred_bytes as f64 / info.total_bytes as f64).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let filled = (pct * bar_width as f64) as usize;
+    let bar_filled: String = "\u{2588}".repeat(filled);
+    let bar_empty: String = "\u{2591}".repeat(bar_width - filled);
+    let pct_str = if info.total_bytes > 0 {
+        format!("{:3.0}%", pct * 100.0)
+    } else {
+        "  ??".to_string()
+    };
+
+    let mut spans = vec![
+        Span::styled(format!(" {} ", direction_icon), Style::default().fg(Color::Cyan)),
+        Span::styled(format!("{:<width$} ", filename, width = filename_max), Style::default().fg(Color::White)),
+        Span::styled(bar_filled, Style::default().fg(Color::Cyan)),
+        Span::styled(bar_empty, Style::default().fg(Color::DarkGray)),
+        Span::raw(format!(" {} ", pct_str)),
+        Span::styled(speed_str, Style::default().fg(Color::Green)),
+    ];
+
+    if !eta_str.is_empty() {
+        spans.push(Span::raw(format!("  {}", eta_str)));
+    }
+
+    let paragraph = Paragraph::new(Line::from(spans))
+        .style(Style::default().bg(Color::Rgb(0x1a, 0x1a, 0x2e)));
     frame.render_widget(paragraph, area);
 }

@@ -6,6 +6,19 @@ use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
 #[derive(Debug)]
+pub enum TransferState {
+    Progress { bytes_transferred: u64 },
+    Completed { total_bytes: u64 },
+    Failed { error: String },
+}
+
+#[derive(Debug)]
+pub struct TransferUpdate {
+    pub id: u64,
+    pub state: TransferState,
+}
+
+#[derive(Debug)]
 pub enum Event {
     Key(KeyEvent),
     Mouse(MouseEvent),
@@ -13,6 +26,7 @@ pub enum Event {
     SshOutput(Vec<u8>),
     SshEof,
     Resize(u16, u16),
+    TransferProgress(TransferUpdate),
     #[allow(dead_code)]
     Tick,
 }

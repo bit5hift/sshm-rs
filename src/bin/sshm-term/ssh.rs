@@ -1,10 +1,13 @@
 use anyhow::Result;
 use crossterm::event::KeyEvent;
+use russh::cipher;
 use russh::client::{self, Msg};
 use russh::keys::{PrivateKeyWithHashAlg, load_secret_key};
-use russh::{Channel, ChannelReadHalf, ChannelWriteHalf};
+use russh::{Channel, ChannelReadHalf, ChannelWriteHalf, Preferred};
+use std::borrow::Cow;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 #[derive(Debug, Clone)]
 pub enum Auth {
@@ -68,7 +71,30 @@ pub struct SshConnection {
 
 impl SshConnection {
     pub async fn connect(host: String, port: u16, user: String, auth: Auth) -> Result<Self> {
-        let config = Arc::new(client::Config::default());
+        // Preferred cipher order: chacha20-poly1305 first for performance,
+        // then AES-GCM variants. Falls back to russh defaults for the rest.
+        let preferred_ciphers: &'static [cipher::Name] = &[
+            cipher::CHACHA20_POLY1305,
+            cipher::AES_256_GCM,
+            cipher::AES_128_GCM,
+            cipher::AES_256_CTR,
+            cipher::AES_192_CTR,
+            cipher::AES_128_CTR,
+        ];
+        let preferred = Preferred {
+            cipher: Cow::Borrowed(preferred_ciphers),
+            ..Preferred::DEFAULT
+        };
+        let config = Arc::new(client::Config {
+            // 64 MB window size for fast bulk transfers
+            window_size: 64 * 1024 * 1024,
+            // 32 KB max packet size (russh default, kept explicit)
+            maximum_packet_size: 32 * 1024,
+            preferred,
+            keepalive_interval: Some(Duration::from_secs(30)),
+            keepalive_max: 3,
+            ..client::Config::default()
+        });
         let host_key_message_slot: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         let handler = SshHandler {
             host: host.clone(),

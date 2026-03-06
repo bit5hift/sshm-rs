@@ -1,7 +1,8 @@
-use crate::{sftp::SftpBrowser, ssh::{Auth, SshConnection}, terminal::TerminalPanel};
+use crate::{sftp::SftpBrowser, ssh::{Auth, SshConnection}, terminal::TerminalPanel, transfer::TransferManager};
 use anyhow::Result;
 use ratatui::widgets::ListState;
 use std::time::Instant;
+use tokio::sync::mpsc::UnboundedSender;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PanelFocus {
@@ -48,6 +49,7 @@ pub struct App {
     pub show_sftp: bool,
     pub should_quit: bool,
     pub status_message: String,
+    pub status_message_expires: Option<Instant>,
     pub sftp_list_area: Option<ratatui::layout::Rect>,
     pub sftp_breadcrumb_area: Option<ratatui::layout::Rect>,
     pub sftp_editing_path: bool,
@@ -60,12 +62,14 @@ pub struct App {
     pub confirm_delete: Option<(String, bool)>, // (remote_path, is_dir)
     pub frame_area: ratatui::layout::Rect,
     pub snippet_overlay: Option<crate::snippets::SnippetOverlay>,
+    pub event_tx: UnboundedSender<crate::event::Event>,
+    pub transfers: TransferManager,
     last_click: Option<(usize, Instant)>,
     last_snippet_click: Option<(usize, Instant)>,
 }
 
 impl App {
-    pub fn new(host: String, port: u16, user: String, auth: Auth) -> Self {
+    pub fn new(host: String, port: u16, user: String, auth: Auth, event_tx: UnboundedSender<crate::event::Event>) -> Self {
         Self {
             host,
             port,
@@ -78,6 +82,7 @@ impl App {
             show_sftp: false,
             should_quit: false,
             status_message: String::from("Connecting…"),
+            status_message_expires: None,
             sftp_list_area: None,
             sftp_breadcrumb_area: None,
             sftp_editing_path: false,
@@ -90,6 +95,8 @@ impl App {
             confirm_delete: None,
             frame_area: ratatui::layout::Rect::default(),
             snippet_overlay: None,
+            event_tx,
+            transfers: TransferManager::new(),
             last_click: None,
             last_snippet_click: None,
         }
@@ -159,23 +166,36 @@ impl App {
             ContextAction::Download => {
                 if let Some(entry) = self.sftp.entries.get(self.sftp.selected_index) {
                     if !entry.is_dir {
+                        if self.transfers.active_count() >= 3 {
+                            self.status_message = "Max 3 concurrent transfers — wait for one to finish".to_string();
+                            return Ok(());
+                        }
                         let remote_path = crate::sftp::posix_join(&self.sftp.current_path, &entry.name);
-                        let entry_name = entry.name.clone();
+                        let filename = entry.name.clone();
+                        let total_bytes = entry.size;
                         let download_dir = get_download_dir();
-                        match self.sftp.download_to_local(&remote_path, &download_dir).await {
-                            Ok((bytes, local_path)) => {
-                                self.status_message = format!(
-                                    "Downloaded {} ({} bytes) to {}",
-                                    entry_name,
-                                    bytes,
-                                    local_path.display()
-                                );
-                                let folder = local_path.parent().unwrap_or(&download_dir).to_path_buf();
-                                open_folder(&folder);
-                            }
-                            Err(e) => {
-                                self.status_message = format!("Download failed: {e}");
-                            }
+                        let local_path = download_dir.join(&filename);
+
+                        if let Some(sftp_arc) = self.sftp.session_arc() {
+                            let cancel = tokio_util::sync::CancellationToken::new();
+                            let id = self.transfers.start_transfer(
+                                filename.clone(),
+                                total_bytes,
+                                crate::transfer::TransferDirection::Download,
+                                cancel.clone(),
+                            );
+                            self.sftp.last_download_path = Some(download_dir.clone());
+                            self.status_message = format!("Downloading {}...", filename);
+                            crate::transfer::spawn_download(
+                                sftp_arc,
+                                remote_path,
+                                local_path,
+                                id,
+                                self.event_tx.clone(),
+                                cancel,
+                            );
+                        } else {
+                            self.status_message = "No SFTP session".to_string();
                         }
                     }
                 }
@@ -237,28 +257,33 @@ impl App {
                         if let Some(ssh) = &self.ssh {
                             match create_remote_archive(ssh, &parent, &dir_name).await {
                                 Ok((archive_path, archive_name)) => {
-                                    self.status_message = format!("Downloading {}...", archive_name);
-                                    let download_dir = get_download_dir();
-                                    match self.sftp.download_to_local(&archive_path, &download_dir).await {
-                                        Ok((bytes, local_path)) => {
-                                            if let Some(ssh2) = &self.ssh {
-                                                let rm_cmd = format!("rm -f {}", shell_escape(&archive_path));
-                                                let _ = ssh2.exec_command(&rm_cmd).await;
-                                            }
-                                            self.status_message = format!(
-                                                "Downloaded {} ({} bytes)",
-                                                archive_name, bytes
-                                            );
-                                            let folder = local_path.parent().unwrap_or(&download_dir).to_path_buf();
-                                            open_folder(&folder);
-                                        }
-                                        Err(e) => {
-                                            if let Some(ssh2) = &self.ssh {
-                                                let rm_cmd = format!("rm -f {}", shell_escape(&archive_path));
-                                                let _ = ssh2.exec_command(&rm_cmd).await;
-                                            }
-                                            self.status_message = format!("Download failed: {e}");
-                                        }
+                                    // Clean up the remote archive after download regardless of outcome.
+                                    // We spawn a background download; the cleanup runs in the task.
+                                    if let Some(sftp_arc) = self.sftp.session_arc() {
+                                        let download_dir = get_download_dir();
+                                        let local_path = download_dir.join(&archive_name);
+                                        let cancel = tokio_util::sync::CancellationToken::new();
+                                        let id = self.transfers.start_transfer(
+                                            archive_name.clone(),
+                                            0,
+                                            crate::transfer::TransferDirection::Download,
+                                            cancel.clone(),
+                                        );
+                                        self.sftp.last_download_path = Some(download_dir.clone());
+                                        self.status_message = format!("Downloading {}...", archive_name);
+
+                                        let tx = self.event_tx.clone();
+                                        // Spawn download; on completion, delete remote archive
+                                        tokio::spawn(crate::transfer::spawn_download_and_cleanup(
+                                            sftp_arc,
+                                            archive_path,
+                                            local_path,
+                                            id,
+                                            tx,
+                                            cancel,
+                                        ));
+                                    } else {
+                                        self.status_message = "No SFTP session".to_string();
                                     }
                                     self.sftp.list_directory().await?;
                                 }
@@ -481,6 +506,22 @@ impl App {
                     self.snippet_overlay = Some(crate::snippets::SnippetOverlay::new(snippets));
                     return Ok(());
                 }
+                if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('x') {
+                    if self.transfers.has_active() {
+                        // Cancel the most recently started active transfer
+                        let latest_id = self
+                            .transfers
+                            .active_transfers()
+                            .last()
+                            .map(|t| t.id);
+                        if let Some(id) = latest_id {
+                            self.transfers.cancel_transfer(id);
+                            self.status_message = "Transfer cancelled".to_string();
+                            self.status_message_expires = Some(Instant::now() + std::time::Duration::from_secs(3));
+                        }
+                    }
+                    return Ok(());
+                }
                 match self.focus {
                     PanelFocus::Terminal => {
                         if let Some(ssh) = &mut self.ssh {
@@ -638,6 +679,7 @@ impl App {
                 }
             }
             Event::SshEof => {
+                self.transfers.cancel_all_active();
                 self.status_message = "Connection closed.".to_string();
                 self.should_quit = true;
             }
@@ -658,8 +700,67 @@ impl App {
                     ssh.send_raw_bytes(text.as_bytes()).await?;
                 }
             }
+            Event::TransferProgress(update) => {
+                use crate::event::TransferState;
+                match update.state {
+                    TransferState::Progress { bytes_transferred } => {
+                        self.transfers.update_progress(update.id, bytes_transferred);
+                    }
+                    TransferState::Completed { total_bytes } => {
+                        if let Some(info) = self.transfers.get(update.id) {
+                            let filename = info.filename.clone();
+                            let direction = info.direction;
+                            let local_path_hint = self.sftp.last_download_path.clone();
+                            self.transfers.complete_transfer(update.id, total_bytes);
+                            let size_str = crate::sftp::SftpBrowser::format_size(total_bytes);
+                            match direction {
+                                crate::transfer::TransferDirection::Download => {
+                                    self.status_message = format!(
+                                        "Downloaded {} ({})",
+                                        filename, size_str
+                                    );
+                                    if let Some(folder) = local_path_hint {
+                                        open_folder(&folder);
+                                    }
+                                    let _ = self.sftp.list_directory().await;
+                                }
+                                crate::transfer::TransferDirection::Upload => {
+                                    self.status_message = format!(
+                                        "Uploaded {} ({})",
+                                        filename, size_str
+                                    );
+                                    let _ = self.sftp.list_directory().await;
+                                }
+                            }
+                            self.status_message_expires = Some(Instant::now() + std::time::Duration::from_secs(5));
+                        }
+                    }
+                    TransferState::Failed { error } => {
+                        if let Some(info) = self.transfers.get(update.id) {
+                            let filename = info.filename.clone();
+                            self.transfers.fail_transfer(update.id);
+                            self.status_message = format!("Transfer failed ({}): {}", filename, error);
+                            self.status_message_expires = Some(Instant::now() + std::time::Duration::from_secs(8));
+                        }
+                    }
+                }
+            }
             Event::Tick => {}
         }
+
+        // Auto-clear expired status messages
+        if let Some(expires) = self.status_message_expires {
+            if Instant::now() >= expires {
+                self.status_message_expires = None;
+                if self.transfers.active_count() == 0 {
+                    self.status_message = String::new();
+                }
+            }
+        }
+
+        // Prune finished transfers (keep only active ones + brief grace for UI)
+        self.transfers.prune_finished();
+
         Ok(())
     }
     async fn handle_snippet_key(&mut self, key: crossterm::event::KeyEvent) -> Result<()> {

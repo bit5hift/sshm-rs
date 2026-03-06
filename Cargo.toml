@@ -44,6 +44,7 @@ russh = { version = "0.57", default-features = false, features = ["ring"] }
 russh-sftp = "2.1"
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
+tokio-util = "0.7"
 tui-term = "0.2"
 vt100 = "0.15"
 

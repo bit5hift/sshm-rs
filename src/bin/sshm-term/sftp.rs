@@ -1,7 +1,6 @@
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent};
 use std::collections::HashMap;
-use tokio::io::AsyncReadExt;
 
 #[derive(Debug, Clone)]
 pub struct SftpEntry {
@@ -42,12 +41,15 @@ pub struct SftpBrowser {
     pub entries: Vec<SftpEntry>,
     pub selected_index: usize,
     pub show_hidden: bool,
-    sftp: Option<russh_sftp::client::SftpSession>,
+    sftp: Option<std::sync::Arc<russh_sftp::client::SftpSession>>,
     pub loading: bool,
     pub error: Option<String>,
     pub uid_cache: HashMap<u32, String>,
     pub gid_cache: HashMap<u32, String>,
     pub cache_loaded: bool,
+    /// Path of the last download's destination directory, used to open the
+    /// folder in the OS file manager when a background download completes.
+    pub last_download_path: Option<std::path::PathBuf>,
 }
 
 impl SftpBrowser {
@@ -63,11 +65,19 @@ impl SftpBrowser {
             uid_cache: HashMap::new(),
             gid_cache: HashMap::new(),
             cache_loaded: false,
+            last_download_path: None,
         }
     }
 
+
     pub fn set_session(&mut self, sftp: russh_sftp::client::SftpSession) {
-        self.sftp = Some(sftp);
+        self.sftp = Some(std::sync::Arc::new(sftp));
+    }
+
+    /// Return a clone of the Arc wrapping the SFTP session.
+    /// Background transfer tasks hold this Arc so they don't borrow SftpBrowser.
+    pub fn session_arc(&self) -> Option<std::sync::Arc<russh_sftp::client::SftpSession>> {
+        self.sftp.clone()
     }
 
     /// Fetch /etc/passwd and /etc/group from the remote server and populate
@@ -195,37 +205,6 @@ impl SftpBrowser {
         Ok(())
     }
 
-    #[allow(dead_code)]
-    pub async fn download_file(&self, remote: &str, local: &std::path::Path) -> Result<u64> {
-        let sftp = self
-            .sftp
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("No SFTP session"))?;
-
-        let mut remote_file = sftp.open(remote).await?;
-        let mut data = Vec::new();
-        remote_file.read_to_end(&mut data).await?;
-
-        let bytes_written = data.len() as u64;
-        tokio::fs::write(local, &data).await?;
-
-        Ok(bytes_written)
-    }
-
-    pub async fn upload_file(&self, local: &std::path::Path, remote: &str) -> Result<u64> {
-        let sftp = self
-            .sftp
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("No SFTP session"))?;
-
-        let data = tokio::fs::read(local).await?;
-        let bytes = data.len() as u64;
-
-        let mut remote_file = sftp.create(remote).await?;
-        tokio::io::AsyncWriteExt::write_all(&mut remote_file, &data).await?;
-
-        Ok(bytes)
-    }
 
     pub async fn handle_key(&mut self, key: KeyEvent) -> Result<()> {
         match key.code {
@@ -372,33 +351,6 @@ impl SftpBrowser {
         s
     }
 
-    /// Download a remote file/directory to a local destination.
-    /// Returns the number of bytes downloaded and the local path used.
-    pub async fn download_to_local(
-        &self,
-        remote_path: &str,
-        local_dir: &std::path::Path,
-    ) -> Result<(u64, std::path::PathBuf)> {
-        let sftp = self
-            .sftp
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("No SFTP session"))?;
-
-        let filename = remote_path.rsplit('/').next().unwrap_or("file");
-        if filename.contains("..") || filename.contains('/') || filename.contains('\\') || filename.is_empty() {
-            return Err(anyhow::anyhow!("Invalid remote filename: {}", filename));
-        }
-        let local_path = local_dir.join(filename);
-
-        let mut remote_file = sftp.open(remote_path).await?;
-        let mut data = Vec::new();
-        tokio::io::AsyncReadExt::read_to_end(&mut remote_file, &mut data).await?;
-
-        let bytes = data.len() as u64;
-        tokio::fs::write(&local_path, &data).await?;
-
-        Ok((bytes, local_path))
-    }
 }
 
 /// Detect the best available editor. Priority:

@@ -4,6 +4,7 @@ mod sftp;
 mod snippets;
 mod ssh;
 mod terminal;
+mod transfer;
 mod ui;
 
 use anyhow::Result;
@@ -86,9 +87,9 @@ async fn run(
     user: String,
     auth: Auth,
 ) -> Result<()> {
-    let mut app = App::new(host.clone(), port, user.clone(), auth);
-
     let (mut events, event_tx) = event::EventLoop::new();
+
+    let mut app = App::new(host.clone(), port, user.clone(), auth, event_tx.clone());
 
     app.connect().await?;
 
@@ -218,19 +219,34 @@ async fn run(
                 let filename = local_path
                     .file_name()
                     .and_then(|n| n.to_str())
-                    .unwrap_or("file");
-                let remote_path = sftp::posix_join(&app.sftp.current_path, filename);
+                    .unwrap_or("file")
+                    .to_string();
+                let remote_path = sftp::posix_join(&app.sftp.current_path, &filename);
+                let total_bytes = std::fs::metadata(&local_path)
+                    .map(|m| m.len())
+                    .unwrap_or(0);
 
-                app.status_message = format!("Uploading {}...", filename);
-
-                match app.sftp.upload_file(&local_path, &remote_path).await {
-                    Ok(bytes) => {
-                        app.status_message = format!("Uploaded {} ({} bytes)", filename, bytes);
-                        let _ = app.sftp.list_directory().await;
-                    }
-                    Err(e) => {
-                        app.status_message = format!("Upload failed: {e}");
-                    }
+                if app.transfers.active_count() >= 3 {
+                    app.status_message = "Max 3 concurrent transfers — wait for one to finish".to_string();
+                } else if let Some(sftp_arc) = app.sftp.session_arc() {
+                    let cancel = tokio_util::sync::CancellationToken::new();
+                    let id = app.transfers.start_transfer(
+                        filename.clone(),
+                        total_bytes,
+                        transfer::TransferDirection::Upload,
+                        cancel.clone(),
+                    );
+                    app.status_message = format!("Uploading {}...", filename);
+                    transfer::spawn_upload(
+                        sftp_arc,
+                        local_path,
+                        remote_path,
+                        id,
+                        event_tx.clone(),
+                        cancel,
+                    );
+                } else {
+                    app.status_message = "No SFTP session".to_string();
                 }
             }
         }
