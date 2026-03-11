@@ -47,9 +47,9 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         ViewMode::PortForward => handle_port_forward_key(app, key),
         ViewMode::Broadcast => handle_broadcast_key(app, key),
         ViewMode::Snippets => handle_snippets_key(app, key),
-        ViewMode::FileTransfer => handle_file_transfer_key(app, key),
         ViewMode::GroupCreate => handle_group_create_key(app, key),
         ViewMode::GroupPicker => handle_group_picker_key(app, key),
+        ViewMode::ThemePicker => handle_theme_picker_key(app, key),
     }
 }
 
@@ -59,12 +59,36 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
         return;
     }
 
+    // Calculate list area boundaries for mouse interactions
+    let title_height: u16 = if app.height < 20 { TITLE_HEIGHT_COMPACT } else { TITLE_HEIGHT };
+    // Layout: title + search bar (3) + list border top (1)
+    let list_top: u16 = title_height + 3 + 1;
+    let x_offset: u16 = if app.show_sidebar { 20 } else { 0 };
+
     match mouse.kind {
         MouseEventKind::ScrollUp => {
             app.move_up();
         }
         MouseEventKind::ScrollDown => {
             app.move_down();
+        }
+        MouseEventKind::Moved => {
+            // Update hover index when mouse moves over the host list area
+            if mouse.column >= x_offset && mouse.row >= list_top {
+                let hovered = app.table_offset + (mouse.row - list_top) as usize;
+                let total_rows = if app.display_rows.is_empty() {
+                    app.filtered_hosts.len()
+                } else {
+                    app.display_rows.len()
+                };
+                if hovered < total_rows {
+                    app.hovered_index = Some(hovered);
+                } else {
+                    app.hovered_index = None;
+                }
+            } else {
+                app.hovered_index = None;
+            }
         }
         MouseEventKind::Down(MouseButton::Left) => {
             // Sidebar click handling: sidebar is 20 columns wide at x=0
@@ -80,7 +104,7 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
                         app.sidebar_focused = true;
                         app.sidebar_selected = item_index;
                         if item_index == 0 {
-                            // "All Hosts" — clear tag filter
+                            // "All Hosts" -- clear tag filter
                             if app.sidebar_active_tag.is_some() {
                                 app.sidebar_active_tag = None;
                                 app.apply_filter();
@@ -101,13 +125,8 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
                 return;
             }
 
-            // Layout: title (9 or 1 lines) + search bar (3 lines) + table border (1 line) + header (1 line)
-            let title_height: u16 = if app.height < 20 { TITLE_HEIGHT_COMPACT } else { TITLE_HEIGHT };
-            let table_top_offset: u16 = title_height + 3 + 1 + 1;
-            // Account for sidebar offset on x-coordinate
-            let x_offset: u16 = if app.show_sidebar { 20 } else { 0 };
-            if mouse.row >= table_top_offset && mouse.column >= x_offset {
-                let clicked_index = app.table_offset + (mouse.row - table_top_offset) as usize;
+            if mouse.row >= list_top && mouse.column >= x_offset {
+                let clicked_index = app.table_offset + (mouse.row - list_top) as usize;
                 let total_rows = if app.display_rows.is_empty() {
                     app.filtered_hosts.len()
                 } else {
@@ -127,7 +146,7 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
                         return;
                     }
 
-                    // Double-click detection: same row within 400ms → connect
+                    // Double-click detection: same row within 400ms -> connect
                     let now = Instant::now();
                     if let (Some(last_time), Some(last_idx)) = (app.last_click_time, app.last_click_index) {
                         if last_idx == clicked_index && now.duration_since(last_time) < Duration::from_millis(400) {
@@ -259,6 +278,12 @@ fn handle_table_key(app: &mut App, key: KeyEvent) {
                 app.clamp_offset();
             }
         }
+        KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => {
+            if let Some(host) = app.selected_host() {
+                app.connect_host = Some(host.name.clone());
+                app.should_quit = true;
+            }
+        }
         KeyCode::Enter => {
             // Check if cursor is on a GroupHeader
             if let Some(DisplayRow::GroupHeader { name, .. }) = app.display_rows.get(app.selected) {
@@ -273,7 +298,7 @@ fn handle_table_key(app: &mut App, key: KeyEvent) {
                 let count = app.selected_hosts.len();
                 app.show_toast(&format!("{count} host{} selected — d: delete | Esc: clear", if count == 1 { "" } else { "s" }));
             } else if let Some(host) = app.selected_host() {
-                app.connect_host = Some(host.name.clone());
+                app.connect_host = Some(format!("__sshm_term__:{}", host.name));
                 app.should_quit = true;
             }
         }
@@ -377,6 +402,15 @@ fn handle_table_key(app: &mut App, key: KeyEvent) {
                 app.sidebar_focused = false;
             }
         }
+        KeyCode::Char('T') => {
+            app.theme_picker_original = crate::ui::styles::current_theme();
+            app.theme_picker_index = {
+                let presets = crate::theme::Theme::presets();
+                let current_name = crate::ui::styles::current_theme().name;
+                presets.iter().position(|p| p.name == current_name).unwrap_or(0)
+            };
+            app.view_mode = ViewMode::ThemePicker;
+        }
         KeyCode::Left => {
             if app.show_sidebar {
                 app.sidebar_focused = true;
@@ -389,29 +423,6 @@ fn handle_table_key(app: &mut App, key: KeyEvent) {
             app.snippet_focused = 0;
             app.snippet_error = None;
             app.view_mode = ViewMode::Snippets;
-        }
-        KeyCode::Char('x') => {
-            if let Some(name) = app.selected_host().map(|h| h.name.clone()) {
-                app.connect_host = Some(format!("__sftp__:{}", name));
-                app.should_quit = true;
-            }
-        }
-        KeyCode::Char('X') => {
-            if let Some(name) = app.selected_host().map(|h| h.name.clone()) {
-                app.scp_target = Some(name);
-                app.scp_local_path = String::new();
-                app.scp_remote_path = String::new();
-                app.scp_upload = true;
-                app.scp_focused = 0;
-                app.scp_error = None;
-                app.view_mode = ViewMode::FileTransfer;
-            }
-        }
-        KeyCode::Char('W') => {
-            if let Some(host) = app.selected_host() {
-                app.connect_host = Some(format!("__sshm_term__:{}", host.name));
-                app.should_quit = true;
-            }
         }
         KeyCode::Char('e') => {
             if let Some(host) = app.selected_host().cloned() {
@@ -523,12 +534,10 @@ fn handle_delete_key(app: &mut App, key: KeyEvent) {
                     app.clear_selection();
                     app.reload_hosts();
                     app.show_toast(&format!("Deleted {count} host{}", if count == 1 { "" } else { "s" }));
-                } else {
-                    if let Some(host) = app.hosts.iter().find(|h| h.name == *target).cloned() {
-                        let _ = crate::config::delete_host(&host);
-                        app.reload_hosts();
-                        app.show_toast("Host deleted");
-                    }
+                } else if let Some(host) = app.hosts.iter().find(|h| h.name == *target).cloned() {
+                    let _ = crate::config::delete_host(&host);
+                    app.reload_hosts();
+                    app.show_toast("Host deleted");
                 }
             }
             app.delete_target = None;
@@ -847,73 +856,6 @@ fn handle_edit_key(app: &mut App, key: KeyEvent) {
             app.edit_target = None;
             app.show_toast("Host updated");
             app.view_mode = ViewMode::List;
-        }
-        _ => {}
-    }
-}
-
-fn handle_file_transfer_key(app: &mut App, key: KeyEvent) {
-    match key.code {
-        KeyCode::Esc => {
-            app.scp_target = None;
-            app.scp_error = None;
-            app.view_mode = ViewMode::List;
-        }
-        KeyCode::Tab => {
-            // Cycle forward: direction(0) -> local(1) -> remote(2) -> direction(0)
-            app.scp_focused = (app.scp_focused + 1) % 3;
-        }
-        KeyCode::BackTab => {
-            // Cycle backward
-            app.scp_focused = if app.scp_focused == 0 { 2 } else { app.scp_focused - 1 };
-        }
-        KeyCode::Left | KeyCode::Right => {
-            // Toggle upload/download only when on direction field
-            if app.scp_focused == 0 {
-                app.scp_upload = !app.scp_upload;
-                app.scp_error = None;
-            }
-        }
-        KeyCode::Backspace => {
-            match app.scp_focused {
-                1 => { app.scp_local_path.pop(); }
-                2 => { app.scp_remote_path.pop(); }
-                _ => {}
-            }
-            app.scp_error = None;
-        }
-        KeyCode::Char(c) => {
-            match app.scp_focused {
-                1 => { app.scp_local_path.push(c); }
-                2 => { app.scp_remote_path.push(c); }
-                _ => {}
-            }
-            app.scp_error = None;
-        }
-        KeyCode::Enter => {
-            let host = match app.scp_target.clone() {
-                Some(h) => h,
-                None => {
-                    app.scp_error = Some("No host selected".to_string());
-                    return;
-                }
-            };
-            let local = app.scp_local_path.trim().to_string();
-            let remote = app.scp_remote_path.trim().to_string();
-
-            if local.is_empty() {
-                app.scp_error = Some("Local path is required".to_string());
-                return;
-            }
-            if remote.is_empty() {
-                app.scp_error = Some("Remote path is required".to_string());
-                return;
-            }
-
-            // Signal scp launch via connect_host sentinel
-            let direction = if app.scp_upload { "upload" } else { "download" };
-            app.connect_host = Some(format!("__scp__:{}:{}:{}:{}", host, direction, local, remote));
-            app.should_quit = true;
         }
         _ => {}
     }
@@ -1263,6 +1205,51 @@ fn handle_group_create_key(app: &mut App, key: KeyEvent) {
             app.group_input.clear();
             app.rebuild_display_rows();
             app.show_toast(&format!("Group '{name}' created"));
+            app.view_mode = ViewMode::List;
+        }
+        _ => {}
+    }
+}
+
+fn handle_theme_picker_key(app: &mut App, key: KeyEvent) {
+    let presets = crate::theme::Theme::presets();
+    let count = presets.len();
+
+    match key.code {
+        KeyCode::Esc => {
+            // Revert to original theme
+            crate::ui::styles::init_theme(app.theme_picker_original.clone());
+            app.view_mode = ViewMode::List;
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            if app.theme_picker_index > 0 {
+                app.theme_picker_index -= 1;
+            } else {
+                app.theme_picker_index = count.saturating_sub(1);
+            }
+            // Live preview
+            if let Some(t) = presets.get(app.theme_picker_index) {
+                crate::ui::styles::init_theme(t.clone());
+            }
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            if app.theme_picker_index + 1 < count {
+                app.theme_picker_index += 1;
+            } else {
+                app.theme_picker_index = 0;
+            }
+            // Live preview
+            if let Some(t) = presets.get(app.theme_picker_index) {
+                crate::ui::styles::init_theme(t.clone());
+            }
+        }
+        KeyCode::Enter => {
+            // Confirm: save selected theme
+            if let Some(t) = presets.get(app.theme_picker_index) {
+                crate::ui::styles::init_theme(t.clone());
+                let _ = t.save();
+                app.show_toast(&format!("Theme: {}", t.name));
+            }
             app.view_mode = ViewMode::List;
         }
         _ => {}
