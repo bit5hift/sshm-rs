@@ -696,8 +696,16 @@ impl App {
                 }
             }
             Event::Paste(text) => {
-                if let Some(ssh) = &self.ssh {
-                    ssh.send_raw_bytes(text.as_bytes()).await?;
+                if self.focus == PanelFocus::Terminal {
+                    if let Some(ssh) = &self.ssh {
+                        let mut buf = Vec::with_capacity(text.len() + 12);
+                        buf.extend_from_slice(b"\x1b[200~");
+                        buf.extend_from_slice(text.as_bytes());
+                        buf.extend_from_slice(b"\x1b[201~");
+                        ssh.send_raw_bytes(&buf).await?;
+                    }
+                } else if self.sftp_editing_path {
+                    self.sftp_path_input.push_str(&text);
                 }
             }
             Event::TransferProgress(update) => {
