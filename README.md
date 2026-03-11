@@ -1,8 +1,37 @@
 # sshm-rs
 
-A beautiful and performant TUI SSH connection manager written in Rust, with integrated SSH terminal and SFTP browser. Inspired by [sshm (Go)](https://github.com/Gu1llaum-3/sshm) by Gu1llaum-3.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![GitHub release](https://img.shields.io/github/v/release/bit5hift/sshm-rs)](https://github.com/bit5hift/sshm-rs/releases)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/bit5hift/sshm-rs/release.yml)](https://github.com/bit5hift/sshm-rs/actions)
 
-<!-- TODO: add screenshots -->
+A beautiful and performant TUI SSH connection manager written in Rust, with integrated SSH terminal and SFTP browser.
+
+
+## Highlights
+
+- 🔍 **Fuzzy search** across all SSH hosts with field prefixes (`tag:`, `user:`, `host:`)
+- 🔐 **OS-native keyring** for secure credential storage
+- 📂 **Integrated SFTP** browser with progress tracking
+- 🏷️ **Tags & groups** for server organization
+- ⚡ **Built in Rust** — fast, safe, cross-platform single binary
+- 🎨 **Customizable themes** via JSON configuration
+
+<details>
+<summary>📖 Table of Contents</summary>
+
+- [Features](#features)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Keybindings](#keybindings)
+- [Configuration](#configuration)
+- [Security](#security)
+- [CLI Flags](#cli-flags)
+- [Development](#development)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+- [License](#license)
+
+</details>
 
 ## Features
 
@@ -16,7 +45,7 @@ A beautiful and performant TUI SSH connection manager written in Rust, with inte
 - **Groups and Tags** — Organize hosts into groups or tag them for quick filtering
 - **Command Snippets** — Save and execute pre-configured commands across hosts
 - **Multi-Host Operations** — Broadcast commands or delete multiple hosts at once
-- **Themes** — Three built-in themes (Tokyo Night, High Contrast, Light) with custom theme support
+- **Themes** — Eight built-in themes (Tokyo Night, Catppuccin Mocha, Dracula, Nord, Gruvbox Dark, Solarized Dark, One Dark, High Contrast) with custom theme support
 - **Password Storage** — Secure credential storage using OS keyring
 - **Copy to Clipboard** — Quick copy host information for use elsewhere
 - **Cross-platform** — Windows, Linux, macOS
@@ -347,10 +376,8 @@ Set a password for a host with `p` in the host list, then sshm-rs will use it au
 ### Trust on First Use (TOFU)
 
 sshm-term implements TOFU for SSH host key verification:
-- First connection to a new host prompts with the server's key fingerprint
-- On acceptance, the fingerprint is saved to `~/.ssh/known_hosts`
-- Future connections verify against the saved fingerprint
-- If a host key changes, sshm-term alerts you to potential MITM attacks
+- First connection to a new host automatically trusts the server key (TOFU)
+- Key mismatches are rejected with a warning
 
 ### Password Handling
 
@@ -431,6 +458,16 @@ If sshm-term warns "host key changed":
 - Verify the server hasn't been compromised
 - If you know the host key changed (server maintenance), remove the entry from `~/.ssh/known_hosts`
 - Reconnect to accept the new key
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes
+4. Push to the branch
+5. Open a Pull Request
 
 ## License
 

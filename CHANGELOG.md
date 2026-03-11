@@ -176,7 +176,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [0.1.0-beta.1] - 2026-03-04
 
-First beta release. Rust rewrite inspired by [sshm (Go)](https://github.com/Gu1llaum-3/sshm).
+First beta release.
 
 ### Added
 
@@ -255,4 +255,4 @@ First beta release. Rust rewrite inspired by [sshm (Go)](https://github.com/Gu1l
 - ~3000 lines of Rust code
 - 9 unit tests
 
-[0.1.0-beta.1]: https://github.com/joseph-maia/sshm-rs/releases/tag/v0.1.0-beta.1
+[0.1.0-beta.1]: https://github.com/bit5hift/sshm-rs/releases/tag/v0.1.0-beta.1
