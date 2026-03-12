@@ -8,6 +8,7 @@ mod history;
 mod snippets;
 mod theme;
 mod ui;
+mod update;
 
 use anyhow::Result;
 use clap::Parser;

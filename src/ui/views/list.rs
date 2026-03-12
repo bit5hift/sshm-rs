@@ -1,25 +1,14 @@
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Table};
+use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState};
 use ratatui::Frame;
 
 use crate::connectivity::HostStatus;
-use crate::ui::app::{App, DisplayRow, SortMode, ViewMode};
+use crate::ui::app::{App, DisplayRow, ViewMode};
 use crate::ui::styles;
 
-const ASCII_TITLE: &str = r#"
-  /$$$$$$   /$$$$$$  /$$   /$$ /$$      /$$         /$$$$$$$   /$$$$$$
- /$$__  $$ /$$__  $$| $$  | $$| $$$    /$$$        | $$__  $$ /$$__  $$
-| $$  \__/| $$  \__/| $$  | $$| $$$$  /$$$$        | $$  \ $$| $$  \__/
-|  $$$$$$ |  $$$$$$ | $$$$$$$$| $$ $$/$$ $$ /$$$$$$| $$$$$$$/|  $$$$$$
- \____  $$ \____  $$| $$__  $$| $$  $$$| $$|______/| $$__  $$ \____  $$
- /$$  \ $$ /$$  \ $$| $$  | $$| $$\  $ | $$        | $$  \ $$ /$$  \ $$
-|  $$$$$$/|  $$$$$$/| $$  | $$| $$ \/  | $$        | $$  | $$|  $$$$$$/
- \______/  \______/ |__/  |__/|__/     |__/        |__/  |__/ \______/
-"#;
-
-pub const TITLE_HEIGHT: u16 = 9;
+pub const TITLE_HEIGHT: u16 = 2;
 pub const TITLE_HEIGHT_COMPACT: u16 = 1;
 
 pub fn draw(f: &mut Frame, app: &App) {
@@ -45,10 +34,10 @@ pub fn draw(f: &mut Frame, app: &App) {
         if compact {
             draw_compact_title(f, chunks[0]);
         } else {
-            draw_title(f, chunks[0]);
+            draw_title(f, app, chunks[0]);
         }
         draw_search_bar(f, app, chunks[1]);
-        draw_table(f, app, chunks[2]);
+        draw_host_list(f, app, chunks[2]);
         draw_status_bar(f, app, chunks[3]);
     };
 
@@ -75,28 +64,39 @@ pub fn draw(f: &mut Frame, app: &App) {
         ViewMode::PortForward => draw_port_forward_overlay(f, app, area),
         ViewMode::Broadcast => draw_broadcast_overlay(f, app, area),
         ViewMode::Snippets => draw_snippets_overlay(f, app, area),
-        ViewMode::FileTransfer => draw_file_transfer_overlay(f, app, area),
         ViewMode::GroupCreate => draw_group_create_overlay(f, app, area),
         ViewMode::GroupPicker => draw_group_picker_overlay(f, app, area),
+        ViewMode::ThemePicker => draw_theme_picker_overlay(f, app, area),
         _ => {}
     }
 }
 
-fn draw_title(f: &mut Frame, area: Rect) {
-    if area.width < 75 {
-        draw_compact_title(f, area);
-        return;
+fn draw_title(f: &mut Frame, app: &App, area: Rect) {
+    let group_count = app.groups.groups.len();
+    let conn_count = app.hosts.len();
+    let subtitle_base = format!("{} connections \u{00b7} {} groups", conn_count, group_count);
+
+    let mut subtitle_spans = vec![Span::styled(
+        subtitle_base,
+        Style::default().fg(styles::muted()),
+    )];
+
+    if let Some(ref version) = app.update_available {
+        subtitle_spans.push(Span::styled(
+            format!(" \u{2502} v{} available \u{2014} run sshm-rs update", version),
+            Style::default().fg(styles::yellow()),
+        ));
     }
 
-    let lines: Vec<Line> = ASCII_TITLE
-        .lines()
-        .map(|line| {
-            Line::from(Span::styled(
-                line.to_string(),
-                Style::default().fg(styles::primary()),
-            ))
-        })
-        .collect();
+    let lines = vec![
+        Line::from(Span::styled(
+            "SSH Connection Manager",
+            Style::default()
+                .fg(styles::primary())
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(subtitle_spans),
+    ];
 
     let title = Paragraph::new(lines).alignment(Alignment::Center);
     f.render_widget(title, area);
@@ -168,17 +168,29 @@ fn draw_search_bar(f: &mut Frame, app: &App, area: Rect) {
         styles::border_unfocused_style()
     };
 
-    let label = if app.search_mode {
-        "Search (Esc to unfocus): "
+    let icon_style = if app.search_mode {
+        Style::default().fg(styles::primary())
     } else {
-        "Search (/ to focus): "
+        Style::default().fg(styles::muted())
     };
 
-    let content = format!("{}{}", label, app.search_query);
-    let cursor_suffix = if app.search_mode { "_" } else { "" };
-    let display = format!("{content}{cursor_suffix}");
+    let spans = if app.search_query.is_empty() && !app.search_mode {
+        vec![
+            Span::styled("\u{25b7} ", icon_style),
+            Span::styled("Search...", Style::default().fg(styles::muted())),
+        ]
+    } else {
+        let cursor_suffix = if app.search_mode { "_" } else { "" };
+        vec![
+            Span::styled("\u{25b7} ", icon_style),
+            Span::styled(
+                format!("{}{}", app.search_query, cursor_suffix),
+                Style::default().fg(styles::fg()),
+            ),
+        ]
+    };
 
-    let search = Paragraph::new(display)
+    let search = Paragraph::new(Line::from(spans))
         .style(Style::default().fg(styles::fg()).bg(styles::bg()))
         .block(
             Block::default()
@@ -190,50 +202,23 @@ fn draw_search_bar(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(search, area);
 }
 
-fn draw_table(f: &mut Frame, app: &App, area: Rect) {
+fn draw_host_list(f: &mut Frame, app: &App, area: Rect) {
     let border_style = if !app.search_mode && !app.sidebar_focused {
         styles::border_focused_style()
     } else {
         styles::border_unfocused_style()
     };
 
-    // Calculate column widths dynamically
-    let available_width = if area.width > 4 { area.width - 4 } else { area.width } as usize;
+    let inner_block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(border_style)
+        .style(Style::default().bg(styles::bg()));
 
-    // Column proportions: Status(3) + Name(flex) + User(flex) + Hostname(flex) + Port(6) + Tags(flex)
-    let status_width: u16 = 3;
-    let port_width: u16 = 6;
-    let fixed = (status_width + port_width) as usize;
+    let inner_area = inner_block.inner(area);
+    f.render_widget(inner_block, area);
 
-    let remaining = if available_width > fixed {
-        available_width - fixed
-    } else {
-        40
-    };
-
-    // Distribute remaining: Name 25%, User 15%, Hostname 30%, Tags 30%
-    let name_width = ((remaining * 25) / 100).max(8) as u16;
-    let user_width = ((remaining * 15) / 100).max(6) as u16;
-    let hostname_width = ((remaining * 30) / 100).max(10) as u16;
-    let tags_width = ((remaining * 30) / 100).max(6) as u16;
-
-    // Build header with sort indicator
-    let name_title = match app.sort_mode {
-        SortMode::ByName => "Name \u{2193}",
-        _ => "Name",
-    };
-
-    let header_cells = [
-        "St",
-        name_title,
-        "User",
-        "Hostname",
-        "Port",
-        "Tags",
-    ];
-    let header = Row::new(header_cells)
-        .style(styles::table_header_style())
-        .height(1);
+    let available_width = inner_area.width as usize;
 
     // Build rows
     let visible = app.visible_rows();
@@ -246,132 +231,163 @@ fn draw_table(f: &mut Frame, app: &App, area: Rect) {
     let end = (app.table_offset + visible).min(total_rows);
     let visible_range = app.table_offset..end;
 
-    let rows: Vec<Row> = visible_range
+    // Fixed column layout: [prefix 5][name col][tags col][user col]
+    // prefix = status(3) + icon(2) = 5 chars (fav star is inside name col)
+    let prefix_w: usize = 5;
+    let user_col_w: usize = 14; // fixed width for username
+    let remaining = available_width.saturating_sub(prefix_w + user_col_w);
+    // Split remaining 60/40 between name and tags
+    let name_col_w = (remaining * 55) / 100;
+    let tags_col_w = remaining.saturating_sub(name_col_w);
+
+    let lines: Vec<Line> = visible_range
         .map(|abs_idx| {
             let is_cursor = abs_idx == app.selected;
+            let is_hovered = app.hovered_index == Some(abs_idx) && !is_cursor;
 
-            // Determine what to render for this row
             let display_row = display_source.get(abs_idx).cloned()
                 .unwrap_or(DisplayRow::HostRow(abs_idx));
 
             match display_row {
                 DisplayRow::GroupHeader { name, host_count, collapsed } => {
                     let collapse_icon = if collapsed { "\u{25b8}" } else { "\u{25be}" };
-                    let header_text = format!("{} {} ({})", collapse_icon, name, host_count);
-                    let header_style = if is_cursor {
-                        Style::default()
-                            .fg(styles::primary())
-                            .bg(styles::selection_bg())
-                            .add_modifier(Modifier::BOLD)
+                    let header_text = format!("  {} {} ({})", collapse_icon, name.to_uppercase(), host_count);
+                    let pad_len = available_width.saturating_sub(header_text.len());
+                    let padded = format!("{}{}", header_text, " ".repeat(pad_len));
+                    let row_bg = if is_cursor {
+                        styles::selection_bg()
+                    } else if is_hovered {
+                        styles::hover_bg()
                     } else {
+                        styles::bg()
+                    };
+                    Line::from(Span::styled(
+                        padded,
                         Style::default()
                             .fg(styles::primary())
-                            .add_modifier(Modifier::BOLD)
-                    };
-                    let cells = vec![
-                        Span::raw(""),
-                        Span::styled(header_text, header_style),
-                        Span::raw(""),
-                        Span::raw(""),
-                        Span::raw(""),
-                        Span::raw(""),
-                    ];
-                    Row::new(cells).style(Style::default().bg(styles::bg()))
+                            .bg(row_bg)
+                            .add_modifier(Modifier::BOLD),
+                    ))
                 }
                 DisplayRow::HostRow(host_idx) => {
                     let host = match app.filtered_hosts.get(host_idx) {
                         Some(h) => h,
-                        None => return Row::new(vec![Span::raw(""); 6]),
+                        None => return Line::from(""),
                     };
 
                     let is_multi_selected = app.selected_hosts.contains(&host.name);
 
-                    let (indicator, status) = app.get_status_indicator(&host.name);
-                    let status_style = match status {
-                        HostStatus::Online(_) => styles::status_online_style(),
-                        HostStatus::Offline(_) => styles::status_offline_style(),
-                        HostStatus::Connecting => styles::status_connecting_style(),
-                        HostStatus::Unknown => styles::status_unknown_style(),
-                    };
-
-                    let tags_str = if host.tags.is_empty() {
-                        String::new()
-                    } else {
-                        host.tags.iter().map(|t| format!("#{t}")).collect::<Vec<_>>().join(" ")
-                    };
-
-                    let port_display = if host.port.is_empty() {
-                        "22".to_string()
-                    } else {
-                        host.port.clone()
-                    };
-
-                    let status_span = if is_multi_selected {
-                        Span::styled("\u{2713} ", Style::default().fg(styles::cyan()))
-                    } else {
-                        Span::styled(indicator.to_string(), status_style)
-                    };
-
-                    let name_display = if app.favorites.is_favorite(&host.name) {
-                        format!("\u{2605} {}", host.name)
-                    } else {
-                        host.name.clone()
-                    };
-
-                    let name_style = if is_multi_selected {
-                        Style::default().fg(styles::cyan())
-                    } else if app.favorites.is_favorite(&host.name) {
-                        Style::default().fg(styles::yellow())
-                    } else {
-                        Style::default().fg(styles::fg())
-                    };
-
-                    let cells = vec![
-                        status_span,
-                        Span::styled(name_display, name_style),
-                        Span::styled(host.user.clone(), Style::default().fg(styles::fg())),
-                        Span::styled(host.hostname.clone(), Style::default().fg(styles::cyan())),
-                        Span::styled(port_display, Style::default().fg(styles::fg())),
-                        Span::styled(tags_str, Style::default().fg(styles::purple())),
-                    ];
-
-                    let row = Row::new(cells);
-                    if is_cursor {
-                        row.style(styles::table_selected_style())
+                    let row_bg = if is_cursor {
+                        styles::selection_bg()
                     } else if is_multi_selected {
-                        row.style(styles::multi_selected_style())
+                        ratatui::style::Color::Rgb(0x1e, 0x2a, 0x3a)
+                    } else if is_hovered {
+                        styles::hover_bg()
                     } else {
-                        row.style(styles::table_row_style())
+                        styles::bg()
+                    };
+
+                    let mut spans: Vec<Span> = Vec::new();
+
+                    // === PREFIX column (5 chars): status dot + icon ===
+                    if is_multi_selected {
+                        spans.push(Span::styled(" \u{2713} ", Style::default().fg(styles::cyan()).bg(row_bg)));
+                    } else {
+                        let (indicator, status) = app.get_status_indicator(&host.name);
+                        let status_style = match status {
+                            HostStatus::Online(_) => styles::status_online_style(),
+                            HostStatus::Offline(_) => styles::status_offline_style(),
+                            HostStatus::Connecting => styles::status_connecting_style(),
+                            HostStatus::Unknown => styles::status_unknown_style(),
+                        };
+                        spans.push(Span::styled(
+                            format!(" {} ", indicator),
+                            status_style.bg(row_bg),
+                        ));
                     }
+                    spans.push(Span::styled("\u{25b8} ", Style::default().fg(styles::muted()).bg(row_bg)));
+
+                    // === NAME column (fixed width) ===
+                    let is_fav = app.favorites.is_favorite(&host.name);
+                    let fav_prefix = if is_fav { "\u{2605} " } else { "" };
+                    let name_display = if host.name != host.hostname && !host.hostname.is_empty() {
+                        format!("{}{} ({})", fav_prefix, host.name, host.hostname)
+                    } else {
+                        format!("{}{}", fav_prefix, host.name)
+                    };
+                    // Truncate or pad to fixed width
+                    let name_truncated = if name_display.len() > name_col_w {
+                        format!("{}\u{2026}", &name_display[..name_col_w.saturating_sub(1)])
+                    } else {
+                        format!("{:<width$}", name_display, width = name_col_w)
+                    };
+                    let hostname_style = if is_cursor {
+                        Style::default().fg(styles::primary()).bg(row_bg).add_modifier(Modifier::BOLD)
+                    } else if is_multi_selected {
+                        Style::default().fg(styles::cyan()).bg(row_bg).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(styles::fg()).bg(row_bg).add_modifier(Modifier::BOLD)
+                    };
+                    if is_fav && !name_truncated.is_empty() {
+                        // Color the star separately
+                        let star_end = "\u{2605} ".len();
+                        if name_truncated.len() >= star_end && name_truncated.starts_with('\u{2605}') {
+                            spans.push(Span::styled(
+                                "\u{2605} ".to_string(),
+                                Style::default().fg(styles::yellow()).bg(row_bg),
+                            ));
+                            spans.push(Span::styled(name_truncated[star_end..].to_string(), hostname_style));
+                        } else {
+                            spans.push(Span::styled(name_truncated, hostname_style));
+                        }
+                    } else {
+                        spans.push(Span::styled(name_truncated, hostname_style));
+                    }
+
+                    // === TAGS column (fixed width) ===
+                    let mut tag_spans: Vec<Span> = Vec::new();
+                    let mut tags_used: usize = 0;
+                    for tag in &host.tags {
+                        let badge = format!(" {} ", tag);
+                        let badge_len = badge.len() + 1; // +1 for space after
+                        if tags_used + badge_len <= tags_col_w {
+                            tag_spans.push(Span::styled(badge, styles::tag_style(tag)));
+                            tag_spans.push(Span::styled(" ", Style::default().bg(row_bg)));
+                            tags_used += badge_len;
+                        }
+                    }
+                    // Pad tags column to fixed width
+                    if tags_used < tags_col_w {
+                        tag_spans.push(Span::styled(
+                            " ".repeat(tags_col_w - tags_used),
+                            Style::default().bg(row_bg),
+                        ));
+                    }
+                    spans.extend(tag_spans);
+
+                    // === USER column (fixed width, right-aligned) ===
+                    let user_text = if host.user.is_empty() {
+                        " ".repeat(user_col_w)
+                    } else {
+                        let u = &host.user;
+                        if u.len() >= user_col_w {
+                            u[..user_col_w].to_string()
+                        } else {
+                            format!("{:>width$}", u, width = user_col_w)
+                        }
+                    };
+                    spans.push(Span::styled(user_text, Style::default().fg(styles::muted()).bg(row_bg)));
+
+                    Line::from(spans)
                 }
             }
         })
         .collect();
 
-    let widths = [
-        Constraint::Length(status_width),
-        Constraint::Length(name_width),
-        Constraint::Length(user_width),
-        Constraint::Length(hostname_width),
-        Constraint::Length(port_width),
-        Constraint::Length(tags_width),
-    ];
-
-    let table = Table::new(rows, widths)
-        .header(header)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_type(BorderType::Rounded)
-                .border_style(border_style)
-                .style(Style::default().bg(styles::bg())),
-        )
-        .row_highlight_style(styles::table_selected_style());
-
-    f.render_widget(table, area);
+    let list_paragraph = Paragraph::new(lines);
+    f.render_widget(list_paragraph, inner_area);
 
     // Render scrollbar when there are more rows than visible
-    let visible = app.visible_rows();
     if total_rows > visible {
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
             .begin_symbol(Some("\u{25b2}"))
@@ -390,31 +406,69 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
             .map(|exp| std::time::Instant::now() < exp)
             .unwrap_or(false);
 
-    let (left_text, left_style) = if show_toast {
+    let separator_style = Style::default().fg(styles::muted());
+    let key_style = Style::default().fg(styles::primary()).add_modifier(Modifier::BOLD);
+    let desc_style = Style::default().fg(styles::muted());
+
+    let left_spans: Vec<Span> = if show_toast {
         let msg = format!(" {} ", app.toast_message.as_deref().unwrap_or(""));
-        (msg, Style::default().fg(styles::green()))
+        vec![Span::styled(msg, Style::default().fg(styles::green()))]
     } else if app.search_mode {
-        (
-            " Type to filter | Enter: validate | Tab: switch | Esc: close search".to_string(),
-            styles::help_text_style(),
-        )
+        vec![
+            Span::styled(" Type to filter ", desc_style),
+            Span::styled("\u{2502}", separator_style),
+            Span::styled(" Enter", key_style),
+            Span::styled(" validate ", desc_style),
+            Span::styled("\u{2502}", separator_style),
+            Span::styled(" Esc", key_style),
+            Span::styled(" close", desc_style),
+        ]
     } else if app.has_selection() {
         let count = app.selected_hosts.len();
-        (
-            format!(" {count} selected | Space: toggle | b: broadcast | d: delete | Ctrl+a: all | Esc: clear"),
-            Style::default().fg(styles::cyan()),
-        )
+        vec![
+            Span::styled(format!(" {count} selected "), Style::default().fg(styles::cyan())),
+            Span::styled("\u{2502}", separator_style),
+            Span::styled(" Space", key_style),
+            Span::styled(" toggle ", desc_style),
+            Span::styled("\u{2502}", separator_style),
+            Span::styled(" b", key_style),
+            Span::styled(" broadcast ", desc_style),
+            Span::styled("\u{2502}", separator_style),
+            Span::styled(" d", key_style),
+            Span::styled(" delete ", desc_style),
+            Span::styled("\u{2502}", separator_style),
+            Span::styled(" Esc", key_style),
+            Span::styled(" clear", desc_style),
+        ]
     } else {
-        (
-            " ? Help".to_string(),
-            styles::help_text_style(),
-        )
+        vec![
+            Span::styled(" \u{21b5}", key_style),
+            Span::styled(" terminal ", desc_style),
+            Span::styled("\u{2502}", separator_style),
+            Span::styled(" \u{21e7}\u{21b5}", key_style),
+            Span::styled(" ssh ", desc_style),
+            Span::styled("\u{2502}", separator_style),
+            Span::styled(" a", key_style),
+            Span::styled(" add ", desc_style),
+            Span::styled("\u{2502}", separator_style),
+            Span::styled(" e", key_style),
+            Span::styled(" edit ", desc_style),
+            Span::styled("\u{2502}", separator_style),
+            Span::styled(" d", key_style),
+            Span::styled(" delete ", desc_style),
+            Span::styled("\u{2502}", separator_style),
+            Span::styled(" f", key_style),
+            Span::styled(" fav ", desc_style),
+            Span::styled("\u{2502}", separator_style),
+            Span::styled(" ?", key_style),
+            Span::styled(" help", desc_style),
+        ]
     };
 
     let count = app.filtered_hosts.len();
     let total = app.hosts.len();
     let sort_label = app.sort_mode.label();
-    let right = format!(" [{count}/{total}] Sort: {sort_label} ");
+    let right = format!("[{count}/{total}] Sort: {sort_label} ");
 
     // Build optional warning indicator
     let warn_count = app.config_warnings.len();
@@ -424,8 +478,8 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
         String::new()
     };
 
-    // Calculate padding
-    let left_len = left_text.len();
+    // Calculate left content length for padding
+    let left_len: usize = left_spans.iter().map(|s| s.content.len()).sum();
     let right_len = right.len() + warn_text.len();
     let total_len = area.width as usize;
     let pad = if total_len > left_len + right_len {
@@ -434,10 +488,8 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
         1
     };
 
-    let mut spans = vec![
-        Span::styled(left_text, left_style),
-        Span::raw(" ".repeat(pad)),
-    ];
+    let mut spans = left_spans;
+    spans.push(Span::raw(" ".repeat(pad)));
     if warn_count > 0 {
         spans.push(Span::styled(
             warn_text,
@@ -717,117 +769,6 @@ fn draw_host_form(f: &mut Frame, app: &App, area: Rect, title: &str) {
 
     lines.push(Line::from(Span::styled(
         "  Tab/Arrows: navigate | Enter: save | Esc: cancel",
-        styles::help_text_style(),
-    )));
-
-    let paragraph = Paragraph::new(lines).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(styles::border_focused_style())
-            .style(Style::default().bg(styles::bg()).fg(styles::fg())),
-    );
-    f.render_widget(paragraph, popup_area);
-}
-
-fn draw_file_transfer_overlay(f: &mut Frame, app: &App, area: Rect) {
-    let host_name = app.scp_target.as_deref().unwrap_or("???");
-
-    let popup_width = 60u16.min(area.width.saturating_sub(4));
-    let popup_height = 13u16.min(area.height.saturating_sub(4));
-    let x = (area.width.saturating_sub(popup_width)) / 2;
-    let y = (area.height.saturating_sub(popup_height)) / 2;
-    let popup_area = Rect::new(x, y, popup_width, popup_height);
-
-    f.render_widget(Clear, popup_area);
-
-    // Direction toggle
-    let (upload_style, download_style) = if app.scp_upload {
-        (
-            Style::default().fg(styles::bg()).bg(styles::primary()).add_modifier(Modifier::BOLD),
-            Style::default().fg(styles::muted()),
-        )
-    } else {
-        (
-            Style::default().fg(styles::muted()),
-            Style::default().fg(styles::bg()).bg(styles::primary()).add_modifier(Modifier::BOLD),
-        )
-    };
-
-    let direction_focused = app.scp_focused == 0;
-    let local_focused = app.scp_focused == 1;
-    let remote_focused = app.scp_focused == 2;
-
-    let focus_indicator = |focused: bool| -> &'static str {
-        if focused { "> " } else { "  " }
-    };
-
-    let field_label_style = |focused: bool| -> Style {
-        if focused {
-            Style::default().fg(styles::primary()).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(styles::muted())
-        }
-    };
-
-    let local_cursor = if local_focused { "_" } else { "" };
-    let remote_cursor = if remote_focused { "_" } else { "" };
-
-    let mut lines = vec![
-        Line::from(Span::styled(
-            " FILE TRANSFER (SCP) ",
-            Style::default()
-                .fg(styles::bg())
-                .bg(styles::primary())
-                .add_modifier(Modifier::BOLD),
-        )),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("  Host:       ", Style::default().fg(styles::muted())),
-            Span::styled(host_name, Style::default().fg(styles::fg()).add_modifier(Modifier::BOLD)),
-        ]),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled(focus_indicator(direction_focused), Style::default().fg(styles::primary())),
-            Span::styled("  Direction:  ", field_label_style(direction_focused)),
-            Span::styled(" Upload ", upload_style),
-            Span::raw("  "),
-            Span::styled(" Download ", download_style),
-            if direction_focused {
-                Span::styled("  \u{2190}/\u{2192} to toggle", Style::default().fg(styles::muted()))
-            } else {
-                Span::raw("")
-            },
-        ]),
-        Line::from(vec![
-            Span::styled(focus_indicator(local_focused), Style::default().fg(styles::primary())),
-            Span::styled("  Local path: ", field_label_style(local_focused)),
-            Span::styled(
-                format!("{}{}", app.scp_local_path, local_cursor),
-                Style::default().fg(styles::fg()),
-            ),
-        ]),
-        Line::from(vec![
-            Span::styled(focus_indicator(remote_focused), Style::default().fg(styles::primary())),
-            Span::styled("  Remote path:", field_label_style(remote_focused)),
-            Span::styled(
-                format!(" {}{}", app.scp_remote_path, remote_cursor),
-                Style::default().fg(styles::fg()),
-            ),
-        ]),
-        Line::from(""),
-    ];
-
-    if let Some(ref err) = app.scp_error {
-        lines.push(Line::from(Span::styled(
-            format!("  Error: {err}"),
-            Style::default().fg(styles::red()),
-        )));
-        lines.push(Line::from(""));
-    }
-
-    lines.push(Line::from(Span::styled(
-        "  Tab: navigate | Enter: transfer | Esc: cancel",
         styles::help_text_style(),
     )));
 
@@ -1227,7 +1168,7 @@ fn draw_snippets_overlay(f: &mut Frame, app: &App, area: Rect) {
                 };
 
                 lines.push(Line::from(vec![
-                    Span::styled(format!("{indicator}"), Style::default().fg(styles::primary())),
+                    Span::styled(indicator.to_string(), Style::default().fg(styles::primary())),
                     Span::styled(format!("{:<16} ", snippet.name), name_style),
                     Span::styled(cmd_preview, Style::default().fg(styles::cyan())),
                 ]).style(row_style));
@@ -1376,6 +1317,60 @@ fn draw_group_picker_overlay(f: &mut Frame, app: &App, area: Rect) {
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
         "  j/k: navigate | Enter: assign | Esc: cancel",
+        styles::help_text_style(),
+    )));
+
+    let paragraph = Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(styles::border_focused_style())
+            .style(Style::default().bg(styles::bg()).fg(styles::fg())),
+    );
+    f.render_widget(paragraph, popup_area);
+}
+
+fn draw_theme_picker_overlay(f: &mut Frame, app: &App, area: Rect) {
+    let presets = crate::theme::Theme::presets();
+    let item_count = presets.len() as u16;
+    let popup_height = (item_count + 6).min(area.height.saturating_sub(4));
+    let popup_width = 40u16.min(area.width.saturating_sub(4));
+    let x = (area.width.saturating_sub(popup_width)) / 2;
+    let y = (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect::new(x, y, popup_width, popup_height);
+
+    f.render_widget(Clear, popup_area);
+
+    let mut lines = vec![
+        Line::from(Span::styled(
+            " THEME PICKER ",
+            Style::default()
+                .fg(styles::bg())
+                .bg(styles::primary())
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+    ];
+
+    for (i, preset) in presets.iter().enumerate() {
+        let is_selected = i == app.theme_picker_index;
+        let indicator = if is_selected { "> " } else { "  " };
+        let style = if is_selected {
+            Style::default()
+                .fg(styles::primary())
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(styles::fg())
+        };
+        lines.push(Line::from(vec![
+            Span::styled(indicator, Style::default().fg(styles::primary())),
+            Span::styled(preset.name.clone(), style),
+        ]));
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  j/k: navigate | Enter: apply | Esc: cancel",
         styles::help_text_style(),
     )));
 

@@ -54,18 +54,7 @@ pub fn run_tui() -> Result<()> {
     if let Some(action) = app.connect_host.take() {
         let pf_args = app.port_forward_args.take();
 
-        if let Some(host_name) = action.strip_prefix("__sftp__:") {
-            crate::connectivity::launch_sftp(host_name, None)?;
-        } else if let Some(rest) = action.strip_prefix("__scp__:") {
-            let parts: Vec<&str> = rest.splitn(4, ':').collect();
-            if parts.len() == 4 {
-                let host = parts[0];
-                let upload = parts[1] == "upload";
-                let local = parts[2];
-                let remote = parts[3];
-                crate::connectivity::launch_scp(host, local, remote, upload, None)?;
-            }
-        } else if let Some(host_name) = action.strip_prefix("__sshm_term__:") {
+        if let Some(host_name) = action.strip_prefix("__sshm_term__:") {
             if let Some(ref mut history) = app.history {
                 let _ = history.record_connection(host_name);
             }
@@ -109,6 +98,9 @@ fn run_loop(
     loop {
         // Clear expired toast messages
         app.check_toast();
+
+        // Promote background update check result when ready
+        app.poll_update_check();
 
         // Draw
         terminal.draw(|f| {

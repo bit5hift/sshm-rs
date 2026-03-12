@@ -2,10 +2,18 @@
 name = "sshm-rs"
 version = "0.1.0"
 edition = "2021"
-description = "A beautiful TUI SSH connection manager, inspired by https://github.com/Gu1llaum-3/sshm"
+description = "A beautiful TUI SSH connection manager written in Rust"
 license = "MIT"
-repository = "https://github.com/joseph-maia/sshm-rs"
+repository = "https://github.com/bit5hift/sshm-rs"
 default-run = "sshm-rs"
+
+[[bin]]
+name = "sshm-rs"
+path = "src/main.rs"
+
+[[bin]]
+name = "sshm-term"
+path = "src/bin/sshm-term/main.rs"
 
 [dependencies]
 # TUI
@@ -37,6 +45,8 @@ regex = "1"
 glob = "0.3"
 anyhow = "1"
 rpassword = "7"
+ureq = { version = "3", features = ["json"] }
+semver = "1"
 keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "linux-native"] }
 
 # sshm-term: SSH terminal + SFTP browser companion binary

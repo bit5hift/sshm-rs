@@ -11,6 +11,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
 };
+pub use crate::term_styles as styles;
 
 fn file_icon(name: &str, is_dir: bool) -> (&'static str, Color) {
     if name == ".." {
@@ -108,7 +109,7 @@ fn file_icon(name: &str, is_dir: bool) -> (&'static str, Color) {
 fn filename_color(name: &str, is_dir: bool, permissions: u32) -> Style {
     if is_dir {
         return Style::default()
-            .fg(Color::Blue)
+            .fg(styles::primary())
             .add_modifier(Modifier::BOLD);
     }
     let ext = name.rsplit('.').next().unwrap_or("").to_lowercase();
@@ -119,10 +120,10 @@ fn filename_color(name: &str, is_dir: bool, permissions: u32) -> Style {
         _ => {}
     }
     if name.starts_with('.') {
-        return Style::default().fg(Color::DarkGray);
+        return Style::default().fg(styles::muted());
     }
     if permissions & 0o111 != 0 {
-        return Style::default().fg(Color::Green);
+        return Style::default().fg(styles::green());
     }
     Style::default()
 }
@@ -169,9 +170,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 fn render_terminal(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
     let focused = app.focus == PanelFocus::Terminal;
     let border_style = if focused {
-        Style::default().fg(Color::Cyan)
+        Style::default().fg(styles::primary())
     } else {
-        Style::default().fg(Color::DarkGray)
+        Style::default().fg(styles::muted())
     };
 
     let block = Block::default()
@@ -187,9 +188,9 @@ fn render_terminal(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
 fn render_sftp(frame: &mut Frame, app: &mut App, area: ratatui::layout::Rect) {
     let focused = app.focus == PanelFocus::Sftp;
     let border_style = if focused {
-        Style::default().fg(Color::Cyan)
+        Style::default().fg(styles::primary())
     } else {
-        Style::default().fg(Color::DarkGray)
+        Style::default().fg(styles::muted())
     };
 
     let vertical = Layout::default()
@@ -206,19 +207,19 @@ fn render_sftp(frame: &mut Frame, app: &mut App, area: ratatui::layout::Rect) {
     if app.sftp_editing_path {
         let input = Paragraph::new(Line::from(vec![
             Span::styled(" ", Style::default()),
-            Span::styled("Go to: ", Style::default().fg(Color::Cyan)),
-            Span::styled(&app.sftp_path_input, Style::default().fg(Color::White)),
-            Span::styled("█", Style::default().fg(Color::White)),
+            Span::styled("Go to: ", Style::default().fg(styles::primary())),
+            Span::styled(&app.sftp_path_input, Style::default().fg(styles::fg())),
+            Span::styled("█", Style::default().fg(styles::fg())),
         ]))
-        .style(Style::default().bg(Color::Rgb(0x30, 0x30, 0x50)));
+        .style(Style::default().bg(styles::selection_bg()));
         frame.render_widget(input, breadcrumb_area);
     } else {
         let path_str = app.sftp.current_path.clone();
         let breadcrumb = Paragraph::new(Line::from(vec![
             Span::styled(" ", Style::default()),
-            Span::styled(path_str, Style::default().fg(Color::Yellow)),
+            Span::styled(path_str, Style::default().fg(styles::yellow())),
         ]))
-        .style(Style::default().bg(Color::DarkGray));
+        .style(Style::default().bg(styles::muted()));
         frame.render_widget(breadcrumb, breadcrumb_area);
     }
 
@@ -236,7 +237,7 @@ fn render_sftp(frame: &mut Frame, app: &mut App, area: ratatui::layout::Rect) {
     if let Some(ref err) = app.sftp.error {
         let error_msg = Paragraph::new(Line::from(vec![Span::styled(
             format!("Error: {err}"),
-            Style::default().fg(Color::Red),
+            Style::default().fg(styles::red()),
         )]))
         .block(block);
         frame.render_widget(error_msg, list_area);
@@ -246,7 +247,7 @@ fn render_sftp(frame: &mut Frame, app: &mut App, area: ratatui::layout::Rect) {
     if app.sftp.entries.is_empty() {
         let empty = Paragraph::new(Line::from(vec![Span::styled(
             "(empty directory)",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(styles::muted()),
         )]))
         .block(block);
         frame.render_widget(empty, list_area);
@@ -293,7 +294,7 @@ fn render_sftp(frame: &mut Frame, app: &mut App, area: ratatui::layout::Rect) {
                 Span::styled(icon, icon_style),
                 Span::styled(name_truncated, name_style),
                 Span::raw(" "),
-                Span::styled(size_str, Style::default().fg(Color::Green)),
+                Span::styled(size_str, Style::default().fg(styles::green())),
             ];
 
             if show_owner {
@@ -309,12 +310,12 @@ fn render_sftp(frame: &mut Frame, app: &mut App, area: ratatui::layout::Rect) {
                     group_raw.chars().take(owner_col).collect::<String>(),
                     width = owner_col
                 );
-                spans.push(Span::styled(owner_str, Style::default().fg(Color::DarkGray)));
-                spans.push(Span::styled(group_str, Style::default().fg(Color::DarkGray)));
+                spans.push(Span::styled(owner_str, Style::default().fg(styles::muted())));
+                spans.push(Span::styled(group_str, Style::default().fg(styles::muted())));
             }
 
             spans.push(Span::raw(" "));
-            spans.push(Span::styled(perms_str, Style::default().fg(Color::DarkGray)));
+            spans.push(Span::styled(perms_str, Style::default().fg(styles::muted())));
 
             let line = Line::from(spans);
 
@@ -350,9 +351,9 @@ fn render_context_menu(frame: &mut Frame, menu: &ContextMenu) {
         .enumerate()
         .map(|(i, item)| {
             let style = if i == menu.selected {
-                Style::default().bg(Color::Rgb(0x40, 0x40, 0x60)).fg(Color::White)
+                Style::default().bg(styles::selection_bg()).fg(styles::fg())
             } else {
-                Style::default().fg(Color::White)
+                Style::default().fg(styles::fg())
             };
             ListItem::new(Span::styled(format!(" {} ", item.label), style))
         })
@@ -361,8 +362,8 @@ fn render_context_menu(frame: &mut Frame, menu: &ContextMenu) {
     let list = List::new(items).block(
         Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan))
-            .style(Style::default().bg(Color::Rgb(0x20, 0x20, 0x30))),
+            .border_style(Style::default().fg(styles::primary()))
+            .style(Style::default().bg(styles::bg())),
     );
 
     frame.render_widget(list, menu_area);
@@ -429,14 +430,14 @@ fn render_snippet_browse(
     let search_block = Block::default()
         .title(title)
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan))
-        .style(Style::default().bg(Color::Rgb(0x1a, 0x1b, 0x26)));
+        .border_style(Style::default().fg(styles::primary()))
+        .style(Style::default().bg(styles::bg()));
     frame.render_widget(search_block, search_area);
 
     let list_block = Block::default()
         .borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
-        .border_style(Style::default().fg(Color::Cyan))
-        .style(Style::default().bg(Color::Rgb(0x1a, 0x1b, 0x26)));
+        .border_style(Style::default().fg(styles::primary()))
+        .style(Style::default().bg(styles::bg()));
     let inner = list_block.inner(list_area);
     frame.render_widget(list_block, list_area);
 
@@ -448,7 +449,7 @@ fn render_snippet_browse(
         };
         let p = Paragraph::new(Span::styled(
             msg,
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(styles::muted()),
         ));
         frame.render_widget(p, inner);
     } else {
@@ -476,13 +477,13 @@ fn render_snippet_browse(
 
             let name_style = if is_selected {
                 Style::default()
-                    .fg(Color::Cyan)
+                    .fg(styles::primary())
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::White)
+                Style::default().fg(styles::fg())
             };
-            let cmd_style = Style::default().fg(Color::Green);
-            let desc_style = Style::default().fg(Color::DarkGray);
+            let cmd_style = Style::default().fg(styles::green());
+            let desc_style = Style::default().fg(styles::muted());
             let marker = if is_selected { "\u{25b8} " } else { "  " };
 
             if y_offset < inner.height {
@@ -523,22 +524,22 @@ fn render_snippet_browse(
     }
 
     let footer = Paragraph::new(Line::from(vec![
-        Span::styled(" Enter", Style::default().fg(Color::Yellow)),
+        Span::styled(" Enter", Style::default().fg(styles::yellow())),
         Span::raw(":exec"),
         Span::raw("  "),
-        Span::styled("a", Style::default().fg(Color::Yellow)),
+        Span::styled("a", Style::default().fg(styles::yellow())),
         Span::raw(":add"),
         Span::raw("  "),
-        Span::styled("e", Style::default().fg(Color::Yellow)),
+        Span::styled("e", Style::default().fg(styles::yellow())),
         Span::raw(":edit"),
         Span::raw("  "),
-        Span::styled("d", Style::default().fg(Color::Yellow)),
+        Span::styled("d", Style::default().fg(styles::yellow())),
         Span::raw(":del"),
         Span::raw("  "),
-        Span::styled("Esc", Style::default().fg(Color::Yellow)),
+        Span::styled("Esc", Style::default().fg(styles::yellow())),
         Span::raw(":close"),
     ]))
-    .style(Style::default().bg(Color::Rgb(0x1a, 0x1b, 0x26)));
+    .style(Style::default().bg(styles::bg()));
     frame.render_widget(footer, footer_area);
 }
 
@@ -561,8 +562,8 @@ fn render_snippet_form(
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan))
-        .style(Style::default().bg(Color::Rgb(0x1a, 0x1b, 0x26)));
+        .border_style(Style::default().fg(styles::primary()))
+        .style(Style::default().bg(styles::bg()));
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -593,16 +594,16 @@ fn render_snippet_form(
 
         let is_active = form.active_field == *field;
         let label_style = if is_active {
-            Style::default().fg(Color::Cyan)
+            Style::default().fg(styles::primary())
         } else {
-            Style::default().fg(Color::DarkGray)
+            Style::default().fg(styles::muted())
         };
         let cursor = if is_active { "\u{2588}" } else { "" };
 
         let line = Line::from(vec![
             Span::styled(*label, label_style),
-            Span::styled(*value, Style::default().fg(Color::White)),
-            Span::styled(cursor, Style::default().fg(Color::White)),
+            Span::styled(*value, Style::default().fg(styles::fg())),
+            Span::styled(cursor, Style::default().fg(styles::fg())),
         ]);
         frame.render_widget(Paragraph::new(line), field_area);
     }
@@ -610,13 +611,13 @@ fn render_snippet_form(
     let footer_y = inner.y + inner.height.saturating_sub(1);
     let footer_area = Rect::new(inner.x, footer_y, inner.width, 1);
     let footer = Paragraph::new(Line::from(vec![
-        Span::styled(" Tab", Style::default().fg(Color::Yellow)),
+        Span::styled(" Tab", Style::default().fg(styles::yellow())),
         Span::raw(":next field"),
         Span::raw("  "),
-        Span::styled("Enter", Style::default().fg(Color::Yellow)),
+        Span::styled("Enter", Style::default().fg(styles::yellow())),
         Span::raw(":save"),
         Span::raw("  "),
-        Span::styled("Esc", Style::default().fg(Color::Yellow)),
+        Span::styled("Esc", Style::default().fg(styles::yellow())),
         Span::raw(":cancel"),
     ]));
     frame.render_widget(footer, footer_area);
@@ -635,8 +636,8 @@ fn render_snippet_delete(
     let block = Block::default()
         .title(" Delete Snippet ")
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Red))
-        .style(Style::default().bg(Color::Rgb(0x1a, 0x1b, 0x26)));
+        .border_style(Style::default().fg(styles::red()))
+        .style(Style::default().bg(styles::bg()));
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -645,16 +646,16 @@ fn render_snippet_delete(
         Line::from(vec![Span::styled(
             format!("  Delete '{}'?", name),
             Style::default()
-                .fg(Color::Red)
+                .fg(styles::red())
                 .add_modifier(Modifier::BOLD),
         )]),
         Line::from(""),
         Line::from(vec![
             Span::raw("  "),
-            Span::styled("y", Style::default().fg(Color::Yellow)),
+            Span::styled("y", Style::default().fg(styles::yellow())),
             Span::raw(":yes"),
             Span::raw("  "),
-            Span::styled("n", Style::default().fg(Color::Yellow)),
+            Span::styled("n", Style::default().fg(styles::yellow())),
             Span::raw(":cancel"),
         ]),
     ]);
@@ -690,54 +691,54 @@ fn render_status(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
     // Render keybindings / status line
     if app.confirm_delete.is_some() {
         let paragraph = Paragraph::new(Line::from(vec![
-            Span::styled(" \u{26a0} ", Style::default().fg(Color::Red)),
-            Span::styled(&app.status_message, Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+            Span::styled(" \u{26a0} ", Style::default().fg(styles::red())),
+            Span::styled(&app.status_message, Style::default().fg(styles::red()).add_modifier(Modifier::BOLD)),
         ]))
-        .style(Style::default().bg(Color::DarkGray));
+        .style(Style::default().bg(styles::muted()));
         frame.render_widget(paragraph, keys_area);
         return;
     }
 
     let mut keys = vec![
-        Span::styled(" Ctrl+Q", Style::default().fg(Color::Yellow)),
+        Span::styled(" Ctrl+Q", Style::default().fg(styles::yellow())),
         Span::raw(" quit"),
         Span::raw("  "),
-        Span::styled("Ctrl+S", Style::default().fg(Color::Yellow)),
+        Span::styled("Ctrl+S", Style::default().fg(styles::yellow())),
         Span::raw(" switch panel"),
         Span::raw("  "),
-        Span::styled("Ctrl+B", Style::default().fg(Color::Yellow)),
+        Span::styled("Ctrl+B", Style::default().fg(styles::yellow())),
         Span::raw(" toggle SFTP"),
         Span::raw("  "),
-        Span::styled("Ctrl+F", Style::default().fg(Color::Yellow)),
+        Span::styled("Ctrl+F", Style::default().fg(styles::yellow())),
         Span::raw(" follow dir"),
         Span::raw("  "),
-        Span::styled("/", Style::default().fg(Color::Yellow)),
+        Span::styled("/", Style::default().fg(styles::yellow())),
         Span::raw(" go to path"),
         Span::raw("  "),
-        Span::styled("d", Style::default().fg(Color::Yellow)),
+        Span::styled("d", Style::default().fg(styles::yellow())),
         Span::raw(" download"),
         Span::raw("  "),
-        Span::styled("u", Style::default().fg(Color::Yellow)),
+        Span::styled("u", Style::default().fg(styles::yellow())),
         Span::raw(" upload"),
         Span::raw("  "),
-        Span::styled("Ctrl+P", Style::default().fg(Color::Yellow)),
+        Span::styled("Ctrl+P", Style::default().fg(styles::yellow())),
         Span::raw(" snippets"),
         Span::raw("  "),
-        Span::styled(&app.status_message, Style::default().fg(Color::Green)),
+        Span::styled(&app.status_message, Style::default().fg(styles::green())),
     ];
 
     if app.sftp_follow_terminal {
         keys.push(Span::raw("  "));
-        keys.push(Span::styled("[Follow]", Style::default().fg(Color::Cyan)));
+        keys.push(Span::styled("[Follow]", Style::default().fg(styles::primary())));
     }
 
     if active_count > 0 {
         keys.push(Span::raw("  "));
-        keys.push(Span::styled("Ctrl+X", Style::default().fg(Color::Yellow)));
+        keys.push(Span::styled("Ctrl+X", Style::default().fg(styles::yellow())));
         keys.push(Span::raw(" cancel transfer"));
     }
 
-    let paragraph = Paragraph::new(Line::from(keys)).style(Style::default().bg(Color::DarkGray));
+    let paragraph = Paragraph::new(Line::from(keys)).style(Style::default().bg(styles::muted()));
     frame.render_widget(paragraph, keys_area);
 }
 
@@ -786,12 +787,12 @@ fn render_transfer_row(frame: &mut Frame, info: &crate::transfer::TransferInfo, 
     };
 
     let mut spans = vec![
-        Span::styled(format!(" {} ", direction_icon), Style::default().fg(Color::Cyan)),
-        Span::styled(format!("{:<width$} ", filename, width = filename_max), Style::default().fg(Color::White)),
-        Span::styled(bar_filled, Style::default().fg(Color::Cyan)),
-        Span::styled(bar_empty, Style::default().fg(Color::DarkGray)),
+        Span::styled(format!(" {} ", direction_icon), Style::default().fg(styles::primary())),
+        Span::styled(format!("{:<width$} ", filename, width = filename_max), Style::default().fg(styles::fg())),
+        Span::styled(bar_filled, Style::default().fg(styles::primary())),
+        Span::styled(bar_empty, Style::default().fg(styles::muted())),
         Span::raw(format!(" {} ", pct_str)),
-        Span::styled(speed_str, Style::default().fg(Color::Green)),
+        Span::styled(speed_str, Style::default().fg(styles::green())),
     ];
 
     if !eta_str.is_empty() {
@@ -799,6 +800,6 @@ fn render_transfer_row(frame: &mut Frame, info: &crate::transfer::TransferInfo, 
     }
 
     let paragraph = Paragraph::new(Line::from(spans))
-        .style(Style::default().bg(Color::Rgb(0x1a, 0x1a, 0x2e)));
+        .style(Style::default().bg(styles::bg()));
     frame.render_widget(paragraph, area);
 }

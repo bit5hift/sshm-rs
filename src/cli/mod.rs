@@ -76,18 +76,36 @@ pub enum Commands {
         #[arg(short = 'c', long = "config")]
         config_file: Option<String>,
     },
-    /// Edit the color theme configuration
-    Theme,
+    /// Manage the color theme
+    Theme {
+        #[command(subcommand)]
+        action: Option<ThemeCommands>,
+    },
+    /// Download the latest version of sshm-rs
+    Update,
+}
+
+#[derive(Subcommand)]
+pub enum ThemeCommands {
+    /// List all available theme presets
+    List,
+    /// Apply a theme preset by name and save it
+    Set {
+        /// Name of the theme preset to apply
+        name: String,
+    },
+    /// Remove theme.json to revert to the built-in default
+    Reset,
 }
 
 pub fn run(cli: Cli) -> Result<()> {
     match cli.subcommand {
         Some(Commands::Add) => {
-            println!("Add host - TUI form");
+            println!("Use the TUI to add hosts: run `sshm-rs` then press `a`");
             Ok(())
         }
-        Some(Commands::Edit { host }) => {
-            println!("Edit host: {host}");
+        Some(Commands::Edit { host: _ }) => {
+            println!("Use the TUI to edit hosts: run `sshm-rs` then press `e`");
             Ok(())
         }
         Some(Commands::Search { query }) => run_search(&query, cli.config_file.as_deref()),
@@ -101,7 +119,17 @@ pub fn run(cli: Cli) -> Result<()> {
         Some(Commands::Validate { config_file }) => {
             run_validate(config_file.as_deref().or(cli.config_file.as_deref()))
         }
-        Some(Commands::Theme) => run_theme(),
+        Some(Commands::Theme { action }) => match action {
+            None | Some(ThemeCommands::List) => run_theme_list(),
+            Some(ThemeCommands::Set { name }) => run_theme_set(&name),
+            Some(ThemeCommands::Reset) => run_theme_reset(),
+        },
+        Some(Commands::Update) => {
+            println!(
+                "Check https://github.com/bit5hift/sshm-rs/releases for the latest version.\nTo update: cargo install --git https://github.com/bit5hift/sshm-rs --force"
+            );
+            Ok(())
+        }
         None => {
             if let Some(host_name) = cli.host {
                 connect_to_host(
@@ -322,62 +350,37 @@ fn run_validate(config_file: Option<&str>) -> Result<()> {
 }
 
 /// Open the theme config file in the user's preferred editor.
-fn run_theme() -> Result<()> {
-    let path = crate::theme::Theme::ensure_config_file()?;
-
-    println!("Opening theme config: {}", path.display());
-
-    let editor = resolve_editor();
-    let mut cmd = std::process::Command::new(&editor);
-    cmd.arg(&path);
-    if editor.contains("code") {
-        cmd.arg("--wait");
+fn run_theme_list() -> Result<()> {
+    println!("Available theme presets:");
+    for preset in crate::theme::Theme::presets() {
+        println!("  {}", preset.name);
     }
-    let status = cmd.status();
-
-    match status {
-        Ok(s) if s.success() => {
-            println!("Theme updated. Restart sshm-rs to apply changes.");
-        }
-        Ok(_) => {
-            eprintln!("Editor exited with an error.");
-        }
-        Err(e) => {
-            eprintln!("Failed to open editor '{}': {}", editor, e);
-        }
-    }
-
     Ok(())
 }
 
-/// Resolve the editor to use: $EDITOR, $VISUAL, code, then a platform fallback.
-fn resolve_editor() -> String {
-    if let Ok(e) = std::env::var("EDITOR") {
-        if !e.is_empty() {
-            return e;
+fn run_theme_set(name: &str) -> Result<()> {
+    let presets = crate::theme::Theme::presets();
+    let name_lower = name.to_lowercase();
+    let matched = presets
+        .into_iter()
+        .find(|p| p.name.to_lowercase() == name_lower);
+    match matched {
+        Some(theme) => {
+            theme.save()?;
+            println!("Theme '{}' applied. Restart sshm-rs to see the change.", theme.name);
+            Ok(())
+        }
+        None => {
+            eprintln!("Unknown theme: '{}'. Run 'sshm-rs theme list' to see available presets.", name);
+            std::process::exit(1);
         }
     }
-    if let Ok(e) = std::env::var("VISUAL") {
-        if !e.is_empty() {
-            return e;
-        }
-    }
-    // Check if `code` (VS Code) is available
-    let which_cmd = if cfg!(target_os = "windows") { "where" } else { "which" };
-    if std::process::Command::new(which_cmd)
-        .arg("code")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-    {
-        return "code".to_string();
-    }
-    // Platform fallback
-    if cfg!(target_os = "windows") {
-        "notepad".to_string()
-    } else {
-        "nano".to_string()
-    }
+}
+
+fn run_theme_reset() -> Result<()> {
+    crate::theme::Theme::reset()?;
+    println!("Theme reset to default (Tokyo Night). Restart sshm-rs to apply.");
+    Ok(())
 }
 
 /// Connect to a host: verify it exists, record history, then exec ssh

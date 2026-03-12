@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 // Connectivity module - SSH ping and connection management
 use anyhow::Result;
 use std::collections::HashMap;
@@ -31,6 +30,7 @@ impl std::fmt::Display for HostStatus {
 /// Result of pinging a single host
 #[derive(Debug, Clone)]
 pub struct PingResult {
+    #[allow(dead_code)]
     pub host_name: String,
     pub status: HostStatus,
 }
@@ -62,6 +62,7 @@ impl PingManager {
     }
 
     /// Get a snapshot of all results.
+    #[allow(dead_code)]
     pub fn get_all_statuses(&self) -> HashMap<String, HostStatus> {
         self.results
             .read()
@@ -89,7 +90,6 @@ impl PingManager {
         for (name, hostname, port) in hosts {
             let tx = tx.clone();
             let results = Arc::clone(&results);
-            let timeout = timeout;
 
             thread::spawn(move || {
                 let result = ping_host_tcp(&name, &hostname, &port, timeout);
@@ -426,12 +426,35 @@ fn key_event_to_bytes(key: &crossterm::event::KeyEvent) -> Vec<u8> {
     }
 }
 
+/// Validate a port-forwarding argument string.
+/// Each whitespace-separated token must be a -L/-R/-D flag (optionally with its
+/// spec joined, e.g. "-L8080:host:80") or a bare port-forward spec containing
+/// only digits, colons, dots, and brackets. Any other token (e.g. "-o", "--option")
+/// is rejected to prevent SSH flag injection.
+fn validate_pf_arg(arg: &str) -> bool {
+    let parts: Vec<&str> = arg.split_whitespace().collect();
+    parts.iter().all(|p| {
+        p.starts_with("-L")
+            || p.starts_with("-R")
+            || p.starts_with("-D")
+            || p.chars()
+                .all(|c| c.is_ascii_digit() || c == ':' || c == '.' || c == '[' || c == ']')
+    })
+}
+
 /// Connect to an SSH host with port forwarding arguments.
 pub fn connect_ssh_with_port_forward(
     host: &str,
     pf_arg: &str,
     config_file: Option<&str>,
 ) -> Result<()> {
+    if !validate_pf_arg(pf_arg) {
+        anyhow::bail!(
+            "Invalid port-forwarding argument: {:?}. Only -L/-R/-D flags and port specs are allowed.",
+            pf_arg
+        );
+    }
+
     let mut cmd = std::process::Command::new("ssh");
 
     if let Some(cfg) = config_file {
@@ -507,55 +530,19 @@ pub fn broadcast_command(hosts: &[&str], command: &str, config_file: Option<&str
     Ok(())
 }
 
-/// Launch an interactive SFTP session to the given host.
-pub fn launch_sftp(host: &str, config_file: Option<&str>) -> Result<()> {
-    let mut cmd = std::process::Command::new("sftp");
-
-    if let Some(cfg) = config_file {
-        cmd.args(["-F", cfg]);
-    }
-
-    cmd.arg(host);
-
-    cmd.stdin(std::process::Stdio::inherit())
-        .stdout(std::process::Stdio::inherit())
-        .stderr(std::process::Stdio::inherit());
-
-    cmd.status()?;
-    Ok(())
-}
-
-/// Launch an SCP file transfer.
-pub fn launch_scp(
-    host: &str,
-    local_path: &str,
-    remote_path: &str,
-    upload: bool,
-    config_file: Option<&str>,
-) -> Result<()> {
-    let mut cmd = std::process::Command::new("scp");
-
-    if let Some(cfg) = config_file {
-        cmd.args(["-F", cfg]);
-    }
-
-    if upload {
-        cmd.arg(local_path);
-        cmd.arg(format!("{}:{}", host, remote_path));
-    } else {
-        cmd.arg(format!("{}:{}", host, remote_path));
-        cmd.arg(local_path);
-    }
-
-    cmd.stdin(std::process::Stdio::inherit())
-        .stdout(std::process::Stdio::inherit())
-        .stderr(std::process::Stdio::inherit());
-
-    cmd.status()?;
-    Ok(())
-}
-
 /// Launch the sshm-term companion app for integrated terminal + SFTP.
+/// Check if a program name can be found on PATH.
+fn which_exists(program: &str) -> bool {
+    std::env::var_os("PATH")
+        .map(|paths| {
+            std::env::split_paths(&paths).any(|dir| {
+                let candidate = dir.join(program);
+                candidate.is_file()
+            })
+        })
+        .unwrap_or(false)
+}
+
 pub fn launch_sshm_term(host: &str, config_file: Option<&str>) -> Result<()> {
     let config_path = match config_file {
         Some(p) => std::path::PathBuf::from(p),
@@ -610,7 +597,15 @@ pub fn launch_sshm_term(host: &str, config_file: Option<&str>) -> Result<()> {
             let program = if sshm_term_path.exists() {
                 sshm_term_path.to_string_lossy().to_string()
             } else {
-                "sshm-term".to_string()
+                // Check if sshm-term is on PATH
+                let fallback = "sshm-term".to_string();
+                if which_exists(&fallback) {
+                    fallback
+                } else {
+                    anyhow::bail!(
+                        "sshm-term binary not found. Install it with: cargo install --git https://github.com/bit5hift/sshm-rs --bin sshm-term"
+                    );
+                }
             };
 
             let mut cmd = std::process::Command::new(&program);
@@ -645,7 +640,14 @@ pub fn launch_sshm_term(host: &str, config_file: Option<&str>) -> Result<()> {
     let program = if sshm_term_path.exists() {
         sshm_term_path.to_string_lossy().to_string()
     } else {
-        "sshm-term".to_string()
+        let fallback = "sshm-term".to_string();
+        if which_exists(&fallback) {
+            fallback
+        } else {
+            anyhow::bail!(
+                "sshm-term binary not found. Install it with: cargo install --git https://github.com/bit5hift/sshm-rs --bin sshm-term"
+            );
+        }
     };
 
     let mut cmd = std::process::Command::new(&program);
@@ -662,6 +664,112 @@ pub fn launch_sshm_term(host: &str, config_file: Option<&str>) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_pf_arg;
+
+    // --- valid inputs ---
+
+    #[test]
+    fn valid_local_forward_joined() {
+        // -L with spec joined directly, no space
+        assert!(validate_pf_arg("-L8080:localhost:80"));
+    }
+
+    #[test]
+    fn valid_remote_forward_joined() {
+        // -R with spec joined directly, no space
+        assert!(validate_pf_arg("-R9090:host:22"));
+    }
+
+    #[test]
+    fn valid_dynamic_socks_joined() {
+        // -D with port joined directly
+        assert!(validate_pf_arg("-D1080"));
+    }
+
+    #[test]
+    fn valid_local_forward_with_space() {
+        // When -L and the spec are separated by a space, the spec token
+        // "8080:host:80" contains letters ("host"), which fails the bare-spec
+        // digit/colon/dot/bracket check. The function rejects this form.
+        assert!(!validate_pf_arg("-L 8080:host:80"));
+    }
+
+    #[test]
+    fn valid_multiple_flags() {
+        // Multiple forwarding flags in one string
+        assert!(validate_pf_arg("-L8080:localhost:80 -R9090:host:22 -D1080"));
+    }
+
+    #[test]
+    fn valid_ipv6_bracket_spec() {
+        // Bare spec with IPv6-style brackets
+        assert!(validate_pf_arg("[::1]:8080:[::1]:80"));
+    }
+
+    // --- invalid inputs ---
+
+    #[test]
+    fn invalid_option_flag_no_space() {
+        // -o starts with neither -L, -R, nor -D
+        assert!(!validate_pf_arg("-oProxyCommand=evil"));
+    }
+
+    #[test]
+    fn invalid_double_dash_option() {
+        // -- long-form options must be rejected
+        assert!(!validate_pf_arg("--option foo"));
+    }
+
+    #[test]
+    fn invalid_option_flag_with_space() {
+        // -o as its own token is not -L/-R/-D and not a pure port spec
+        assert!(!validate_pf_arg("-o ProxyCommand=evil"));
+    }
+
+    #[test]
+    fn invalid_shell_injection_dollar_paren() {
+        // Shell metacharacters must be rejected
+        assert!(!validate_pf_arg("$(cmd)"));
+    }
+
+    #[test]
+    fn invalid_mixed_valid_and_injected() {
+        // Valid flag followed by an injection attempt — whole arg must fail
+        assert!(!validate_pf_arg("-L8080:localhost:80 -oProxyCommand=evil"));
+    }
+
+    // --- edge cases ---
+
+    #[test]
+    fn empty_string_is_valid() {
+        // split_whitespace on "" yields no tokens; all() over empty is true
+        assert!(validate_pf_arg(""));
+    }
+
+    #[test]
+    fn whitespace_only_is_valid() {
+        // split_whitespace on "  " also yields no tokens
+        assert!(validate_pf_arg("  "));
+    }
+
+    #[test]
+    fn valid_bare_port_spec_digits_only() {
+        // A bare spec is only accepted when it contains digits, colons, dots,
+        // and brackets — no letters. "localhost" contains letters so it fails.
+        assert!(!validate_pf_arg("8080:localhost:80"));
+        // A spec using only a numeric IP and port passes.
+        assert!(validate_pf_arg("8080:127.0.0.1:80"));
+    }
+
+    #[test]
+    fn invalid_alphanumeric_bare_token() {
+        // Bare token with letters is not a valid port spec and not a flag
+        assert!(!validate_pf_arg("localhost"));
+    }
 }
 
 /// Fallback: connect using the system `ssh` command (for key-based auth).

@@ -4,8 +4,10 @@ use crate::favorites::FavoritesManager;
 use crate::groups::GroupsManager;
 use crate::history::HistoryManager;
 use crate::snippets::SnippetManager;
+use crate::theme::Theme;
 use nucleo_matcher::pattern::{AtomKind, CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,9 +22,9 @@ pub enum ViewMode {
     PortForward,
     Broadcast,
     Snippets,
-    FileTransfer,
     GroupCreate,
     GroupPicker,
+    ThemePicker,
 }
 
 #[derive(Debug, Clone)]
@@ -174,6 +176,9 @@ pub struct App {
     pub toast_message: Option<String>,
     pub toast_expires: Option<Instant>,
 
+    // Mouse hover
+    pub hovered_index: Option<usize>,
+
     // Double-click detection
     pub last_click_time: Option<Instant>,
     pub last_click_index: Option<usize>,
@@ -215,14 +220,6 @@ pub struct App {
     pub snippet_focused: usize,
     pub snippet_error: Option<String>,
 
-    // SCP/SFTP file transfer state
-    pub scp_local_path: String,
-    pub scp_remote_path: String,
-    pub scp_upload: bool,
-    pub scp_focused: usize,
-    pub scp_error: Option<String>,
-    pub scp_target: Option<String>,
-
     // Groups
     pub groups: GroupsManager,
     pub display_rows: Vec<DisplayRow>,
@@ -230,6 +227,14 @@ pub struct App {
     pub group_picker_items: Vec<String>,
     pub group_picker_selected: usize,
     pub ungrouped_collapsed: bool,
+
+    // Update notification
+    pub update_available: Option<String>,
+    pub update_check: Arc<Mutex<Option<String>>>,
+
+    // Theme picker
+    pub theme_picker_index: usize,
+    pub theme_picker_original: Theme,
 }
 
 impl App {
@@ -264,6 +269,7 @@ impl App {
             password_target: None,
             toast_message: None,
             toast_expires: None,
+            hovered_index: None,
             last_click_time: None,
             last_click_index: None,
             favorites,
@@ -291,24 +297,32 @@ impl App {
             snippet_fields: Default::default(),
             snippet_focused: 0,
             snippet_error: None,
-            scp_local_path: String::new(),
-            scp_remote_path: String::new(),
-            scp_upload: true,
-            scp_focused: 0,
-            scp_error: None,
-            scp_target: None,
             groups: GroupsManager::load().unwrap_or_default(),
             display_rows: Vec::new(),
             group_input: String::new(),
             group_picker_items: Vec::new(),
             group_picker_selected: 0,
             ungrouped_collapsed: false,
+            update_available: None,
+            update_check: Arc::new(Mutex::new(None)),
+            theme_picker_index: 0,
+            theme_picker_original: Theme::default(),
         };
         app.hosts = app.sort_hosts(&hosts);
         app.filtered_hosts = app.hosts.clone();
         app.sidebar_tags = app.build_tag_list();
         app.rebuild_display_rows();
         app.start_ping();
+
+        let update_slot = app.update_check.clone();
+        std::thread::spawn(move || {
+            if let Some(info) = crate::update::check_for_update() {
+                if let Ok(mut guard) = update_slot.lock() {
+                    *guard = Some(info.latest_version);
+                }
+            }
+        });
+
         app
     }
 
@@ -344,6 +358,16 @@ impl App {
             if Instant::now() >= expires {
                 self.toast_message = None;
                 self.toast_expires = None;
+            }
+        }
+    }
+
+    pub fn poll_update_check(&mut self) {
+        if self.update_available.is_none() {
+            if let Ok(mut guard) = self.update_check.try_lock() {
+                if guard.is_some() {
+                    self.update_available = guard.take();
+                }
             }
         }
     }
@@ -401,7 +425,7 @@ impl App {
 
     pub fn refresh_sidebar_tags(&mut self) {
         self.sidebar_tags = self.build_tag_list();
-        if self.sidebar_selected >= self.sidebar_tags.len() + 1 {
+        if self.sidebar_selected > self.sidebar_tags.len() {
             self.sidebar_selected = self.sidebar_tags.len();
         }
     }
@@ -494,10 +518,8 @@ impl App {
     }
 
     pub fn visible_rows(&self) -> usize {
-        // When terminal height < 20, compact title uses 1 line instead of 5
-        // Compact: title (1) + search bar (3) + table header (2) + status bar (1) + padding (2) = 9
-        // Full:    title (5) + search bar (3) + table header (2) + status bar (1) + padding (2) = 13
-        let reserved = if self.height < 20 { 9u16 } else { 13u16 };
+        // Title (2 or 1) + search bar (3) + table border (2) + status bar (1) = 8 or 7
+        let reserved = if self.height < 20 { 7u16 } else { 8u16 };
         if self.height > reserved {
             (self.height - reserved) as usize
         } else {
