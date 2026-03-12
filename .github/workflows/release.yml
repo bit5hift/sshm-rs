@@ -18,12 +18,19 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
+            use_cross: false
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            use_cross: true
           - target: x86_64-apple-darwin
-            os: macos-13
+            os: macos-latest
+            use_cross: false
           - target: aarch64-apple-darwin
             os: macos-latest
+            use_cross: false
           - target: x86_64-pc-windows-msvc
             os: windows-latest
+            use_cross: false
 
     steps:
       - name: Checkout
@@ -34,8 +41,12 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Install cross
+        if: matrix.use_cross == true
+        run: cargo install cross --locked
+
       - name: Install Linux system dependencies
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && matrix.use_cross == false
         run: |
           sudo apt-get update
           sudo apt-get install -y libssl-dev pkg-config libdbus-1-dev
@@ -44,7 +55,12 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install openssl@3 pkg-config
 
-      - name: Build
+      - name: Build (cross)
+        if: matrix.use_cross == true
+        run: cross build --release --target ${{ matrix.target }}
+
+      - name: Build (cargo)
+        if: matrix.use_cross == false
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Package (Linux / macOS)
