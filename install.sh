@@ -54,6 +54,7 @@ resolve_target() {
   local arch="$2"
   case "${os}-${arch}" in
     linux-x86_64)   echo "x86_64-unknown-linux-gnu" ;;
+    linux-aarch64)  echo "aarch64-unknown-linux-gnu" ;;
     macos-x86_64)   echo "x86_64-apple-darwin" ;;
     macos-aarch64)  echo "aarch64-apple-darwin" ;;
     windows-x86_64) echo "x86_64-pc-windows-msvc" ;;
