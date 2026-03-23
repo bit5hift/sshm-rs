@@ -58,9 +58,41 @@ pub fn run_tui() -> Result<()> {
         if let Some(action) = app.connect_host.take() {
             let pf_args = app.port_forward_args.take();
 
-            let conn_result = if let Some(host_name) = action.strip_prefix("__sshm_term__:") {
-                crate::connectivity::launch_sshm_term(host_name, None).map(|_| Some(host_name.to_string()))
-            } else if let Some(ref pf_arg) = pf_args {
+            // For sshm-term connections, retry in a loop when password fails
+            if let Some(host_name) = action.strip_prefix("__sshm_term__:") {
+                loop {
+                    match crate::connectivity::launch_sshm_term(host_name, None) {
+                        Ok(()) => {
+                            if let Some(ref mut history) = app.history {
+                                let _ = history.record_connection(host_name);
+                            }
+                            break;
+                        }
+                        Err(e) => {
+                            eprintln!("\nConnection failed: {e}");
+                            match rpassword::prompt_password("Retry with new password (Enter to cancel): ") {
+                                Ok(pw) if !pw.is_empty() => {
+                                    let _ = crate::credentials::save_password(host_name, &pw);
+                                    // loop continues → retry connection immediately
+                                }
+                                _ => {
+                                    // User cancelled — return to TUI
+                                    app.show_toast_error(&format!("Connection failed: {e}"));
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                // If connect_host was consumed, check if we should return to TUI or exit
+                if app.toast_message.is_some() {
+                    // Connection failed and user cancelled — return to TUI
+                    continue;
+                }
+                break;
+            }
+
+            let conn_result = if let Some(ref pf_arg) = pf_args {
                 if let Some(command) = pf_arg.strip_prefix("__snippet__:") {
                     let args: Vec<String> = command.split_whitespace().map(String::from).collect();
                     crate::connectivity::connect_ssh(&action, &args, None, true).map(|_| Some(action.clone()))
@@ -73,7 +105,6 @@ pub fn run_tui() -> Result<()> {
 
             match conn_result {
                 Ok(Some(host_name)) => {
-                    // Record history only on success
                     if let Some(ref mut history) = app.history {
                         let _ = history.record_connection(&host_name);
                     }
@@ -81,15 +112,6 @@ pub fn run_tui() -> Result<()> {
                 }
                 Ok(None) => break,
                 Err(e) => {
-                    // Terminal is now in normal mode — safe to prompt for password
-                    eprintln!("Connection failed: {e}");
-                    if let Some(host_name) = action.strip_prefix("__sshm_term__:") {
-                        if let Ok(new_password) = rpassword::prompt_password("Password: ") {
-                            if !new_password.is_empty() {
-                                let _ = crate::credentials::save_password(host_name, &new_password);
-                            }
-                        }
-                    }
                     app.show_toast_error(&format!("Connection failed: {e}"));
                     continue;
                 }
