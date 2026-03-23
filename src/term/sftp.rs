@@ -83,7 +83,7 @@ impl SftpBrowser {
     /// Fetch /etc/passwd and /etc/group from the remote server and populate
     /// uid/gid name caches. Errors are silently ignored — numeric IDs are used
     /// as fallback when the cache is empty or incomplete.
-    pub async fn load_name_cache(&mut self, ssh: &crate::ssh::SshConnection) {
+    pub async fn load_name_cache(&mut self, ssh: &super::ssh::SshConnection) {
         if self.cache_loaded {
             return;
         }
