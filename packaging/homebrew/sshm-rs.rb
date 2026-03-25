@@ -1,4 +1,4 @@
-class SsshmRs < Formula
+class SshmRs < Formula
   desc "SSH connection manager with integrated terminal and SFTP browser"
   homepage "https://github.com/bit5hift/sshm-rs"
   version "0.2.0"
